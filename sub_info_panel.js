@@ -1,6 +1,7 @@
 /*
  * 由@mieqq编写
  * 原脚本地址：https://raw.githubusercontent.com/mieqq/mieqq/master/sub_info_panel.js
+ * https://raw.githubusercontent.com/Rabbit-Spec/Surge/Master/Panel/Sub-info/Sub-info.js
  * 由@Rabbit-Spec修改
  * 更新日期：2022.06.29
  * 版本：1.7
@@ -122,15 +123,15 @@ function bytesToSizeMaxGB(bytes) {
   if (bytes === 0) return "0B";
   sizes = ["B", "KB", "MB", "GB"];
   let k = 1024;
-  if (bytes < K) {
+  if (bytes < k) {
     return bytes + " B";
   }
   bytes = bytes / k;
-  if (bytes < K) {
+  if (bytes < k) {
     return bytes + " KB";
   }
   bytes = bytes / k;
-  if (bytes < K) {
+  if (bytes < k) {
     return bytes + " MB";
   }
   bytes = bytes / k;
