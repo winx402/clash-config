@@ -124,18 +124,18 @@ function bytesToSizeMaxGB(bytes) {
   sizes = ["B", "KB", "MB", "GB"];
   let k = 1024;
   if (bytes < k) {
-    return bytes + " B";
+    return bytes.toFixed(3) + " B";
   }
   bytes = bytes / k;
   if (bytes < k) {
-    return bytes + " KB";
+    return bytes.toFixed(3) + " KB";
   }
   bytes = bytes / k;
   if (bytes < k) {
-    return bytes + " MB";
+    return bytes.toFixed(3) + " MB";
   }
   bytes = bytes / k;
-  return bytes + " GB";
+  return bytes.toFixed(3) + " GB";
 }
 
 function formatTime(time) {
