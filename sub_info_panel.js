@@ -18,7 +18,7 @@ let args = getArgs();
   let surplus = info.total - used;
   let expire = args.expire || info.expire;
   let content = [`用量：${bytesToSize(used)} | ${bytesToSize(total)}`];
-  content.push(`剩余：${bytesToSizeMaxGB(expire)}`);
+  content.push(`剩余：${bytesToSizeMaxGB(surplus)}`);
   // if (resetDayLeft) {
   //   content.push(`重置：剩余${resetDayLeft}天`);
   // }
