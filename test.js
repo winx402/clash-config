@@ -52,17 +52,21 @@ function getArgs() {
 }
 
 function getUserInfo(url) {
-  let method = "get";
+  let method = args.method || "get";
   let request = { headers: { "User-Agent": "Quantumult%20X" }, url };
   return new Promise((resolve, reject) =>
-    $httpClient[method](request, (err, resp) => {
+    $httpClient[method](request, (err, resp, data) => {
       if (err != null) {
         reject(err);
         return;
       }
-      console.log(resp);
-      console.log('test');
-      return eval("(" + resp + ")")
+      if (resp.status !== 200) {
+        reject(resp.status);
+        return;
+      }
+      console.log(data);
+      console.log('test1');
+      return eval("(" + data + ")")
       // let header = Object.keys(resp.headers).find(
       //   (key) => key.toLowerCase() === "subscription-userinfo"
       // );
