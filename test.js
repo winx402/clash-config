@@ -11,7 +11,7 @@ let args = getArgs();
 
 (async () => {
   let info = await getUserInfo(args.url);
-  console.log('test3');
+  console.log('test4');
   if (!info) $done();
   let resetDayLeft = getRmainingDays(parseInt(args["reset_day"]));
 
@@ -21,11 +21,11 @@ let args = getArgs();
   let expire = args.expire || info.bw_reset_day_of_month;
   let content = [`用量：${bytesToSize(used)} | ${bytesToSize(total)}`];
   content.push(`剩余：${bytesToSizeMaxGB(surplus)}`);
-  console.log('test3');
+  console.log('test4');
   if (resetDayLeft) {
     content.push(`重置：剩余${resetDayLeft}天`);
   }
-  console.log('test3');
+  console.log('test4');
   if (expire && expire !== "false") {
     if (/^[\d.]+$/.test(expire)) expire *= 1000;
     content.push(`到期：${formatTime(expire)}`);
@@ -36,7 +36,7 @@ let args = getArgs();
   let minutes = now.getMinutes();
   hour = hour > 9 ? hour : "0" + hour;
   minutes = minutes > 9 ? minutes : "0" + minutes;
-  console.log('test3');
+  console.log('test4');
   $done({
     title: `${args.title} | ${hour}:${minutes}`,
     content: content.join("\n"),
@@ -67,19 +67,11 @@ function getUserInfo(url) {
         reject(resp.status);
         return;
       }
-      console.log(data);
-      console.log('test3');
-      console.log(JSON.parse(data).monthly_bw_limit_b);
-      console.log((new Function("return " + data))().bw_reset_day_of_month);
-      return (new Function("return " + data))();
-      // let header = Object.keys(resp.headers).find(
-      //   (key) => key.toLowerCase() === "subscription-userinfo"
-      // );
-      // if (header) {
-      //   resolve(resp.headers[header]);
-      //   return;
-      // }
-      // reject("链接响应头不带有流量信息");
+      if (header) {
+        resolve(data);
+        return;
+      }
+      reject("链接响应头不带有流量信息");
     })
   );
 }
@@ -88,12 +80,13 @@ async function getDataInfo(url) {
   const [err, data] = await getUserInfo(url)
     .then((data) => [null, data])
     .catch((err) => [err, null]);
+  console.log('test4');
   if (err) {
     console.log(err);
     return;
   }
-  return eval("(" + data + ")")
-
+  return JSON.parse(data);
+  
   // return Object.fromEntries(
   //   data
   //     .match(/\w+=[\d.eE+]+/g)
