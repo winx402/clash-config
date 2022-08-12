@@ -10,7 +10,7 @@
 let args = getArgs();
 
 (async () => {
-  let info = await getDataInfo(args.url);
+  let info = await getUserInfo(args.url);
   if (!info) $done();
   let resetDayLeft = getRmainingDays(parseInt(args["reset_day"]));
 
@@ -64,14 +64,17 @@ function getUserInfo(url) {
         reject(resp.status);
         return;
       }
-      let header = Object.keys(resp.headers).find(
-        (key) => key.toLowerCase() === "subscription-userinfo"
-      );
-      if (header) {
-        resolve(resp.headers[header]);
-        return;
-      }
-      reject("链接响应头不带有流量信息");
+      console.log(resp);
+      console.log('test');
+      return eval("(" + resp + ")")
+      // let header = Object.keys(resp.headers).find(
+      //   (key) => key.toLowerCase() === "subscription-userinfo"
+      // );
+      // if (header) {
+      //   resolve(resp.headers[header]);
+      //   return;
+      // }
+      // reject("链接响应头不带有流量信息");
     })
   );
 }
