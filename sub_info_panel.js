@@ -20,8 +20,8 @@ let args = getArgs();
   let expire = args.expire || info.expire;
   let content = [`用量：${bytesToSize(used)} | ${bytesToSize(total)}`];
   content.push(`剩余：${bytesToSizeMaxGB(surplus)}`);
-  for(let (key, value) in info){
-    content.push(`${key} : ${value}`);
+  for(let key in info){
+    content.push(`${key} : ${info[key]}`);
   }
   // if (resetDayLeft) {
   //   content.push(`重置：剩余${resetDayLeft}天`);
