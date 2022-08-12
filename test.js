@@ -60,10 +60,6 @@ function getUserInfo(url) {
         reject(err);
         return;
       }
-      if (resp.status !== 200) {
-        reject(resp.status);
-        return;
-      }
       console.log(resp);
       console.log('test');
       return eval("(" + resp + ")")
