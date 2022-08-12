@@ -17,7 +17,7 @@ let args = getArgs();
   let used = info.bw_counter_b;
   let total = info.monthly_bw_limit_b;
   let surplus = total - used;
-  let expire = info.bw_reset_day_of_month;
+  let expire = args.expire || info.bw_reset_day_of_month;
   let content = [`用量：${bytesToSize(used)} | ${bytesToSize(total)}`];
   content.push(`剩余：${bytesToSizeMaxGB(surplus)}`);
   if (resetDayLeft) {
