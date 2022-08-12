@@ -67,11 +67,7 @@ function getUserInfo(url) {
         reject(resp.status);
         return;
       }
-      if (header) {
-        resolve(data);
-        return;
-      }
-      reject("链接响应头不带有流量信息");
+      resolve(data);
     })
   );
 }
