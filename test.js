@@ -65,8 +65,8 @@ function getUserInfo(url) {
         return;
       }
       console.log(data);
-      console.log('test1');
-      return eval("(" + data + ")")
+      console.log('test2');
+      return $.parseJSON(data);
       // let header = Object.keys(resp.headers).find(
       //   (key) => key.toLowerCase() === "subscription-userinfo"
       // );
