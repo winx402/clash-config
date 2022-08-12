@@ -11,7 +11,6 @@ let args = getArgs();
 
 (async () => {
   let info = await getDataInfo(args.url);
-  console.log('test4');
   if (!info) $done();
   let resetDayLeft = getRmainingDays(parseInt(args["reset_day"]));
 
@@ -21,11 +20,9 @@ let args = getArgs();
   let expire = info.bw_reset_day_of_month;
   let content = [`用量：${bytesToSize(used)} | ${bytesToSize(total)}`];
   content.push(`剩余：${bytesToSizeMaxGB(surplus)}`);
-  console.log('test4');
   if (resetDayLeft) {
     content.push(`重置：剩余${resetDayLeft}天`);
   }
-  console.log('test4');
   if (expire && expire !== "false") {
     if (/^[\d.]+$/.test(expire)) expire *= 1000;
     content.push(`到期：${formatTime(expire)}`);
@@ -36,7 +33,6 @@ let args = getArgs();
   let minutes = now.getMinutes();
   hour = hour > 9 ? hour : "0" + hour;
   minutes = minutes > 9 ? minutes : "0" + minutes;
-  console.log('test4');
   $done({
     title: `${args.title} | ${hour}:${minutes}`,
     content: content.join("\n"),
@@ -76,7 +72,6 @@ async function getDataInfo(url) {
   const [err, data] = await getUserInfo(url)
     .then((data) => [null, data])
     .catch((err) => [err, null]);
-  console.log('test4');
   if (err) {
     console.log(err);
     return;
