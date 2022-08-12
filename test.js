@@ -11,6 +11,7 @@ let args = getArgs();
 
 (async () => {
   let info = await getUserInfo(args.url);
+  console.log('test3');
   if (!info) $done();
   let resetDayLeft = getRmainingDays(parseInt(args["reset_day"]));
 
@@ -20,9 +21,11 @@ let args = getArgs();
   let expire = args.expire || info.bw_reset_day_of_month;
   let content = [`用量：${bytesToSize(used)} | ${bytesToSize(total)}`];
   content.push(`剩余：${bytesToSizeMaxGB(surplus)}`);
-  // if (resetDayLeft) {
-  //   content.push(`重置：剩余${resetDayLeft}天`);
-  // }
+  console.log('test3');
+  if (resetDayLeft) {
+    content.push(`重置：剩余${resetDayLeft}天`);
+  }
+  console.log('test3');
   if (expire && expire !== "false") {
     if (/^[\d.]+$/.test(expire)) expire *= 1000;
     content.push(`到期：${formatTime(expire)}`);
@@ -33,7 +36,7 @@ let args = getArgs();
   let minutes = now.getMinutes();
   hour = hour > 9 ? hour : "0" + hour;
   minutes = minutes > 9 ? minutes : "0" + minutes;
-
+  console.log('test3');
   $done({
     title: `${args.title} | ${hour}:${minutes}`,
     content: content.join("\n"),
@@ -66,7 +69,9 @@ function getUserInfo(url) {
       }
       console.log(data);
       console.log('test3');
-      return JSON.parse(data);
+      console.log(JSON.parse(data).monthly_bw_limit_b);
+      console.log((new Function("return " + data))().bw_reset_day_of_month);
+      return (new Function("return " + data))();
       // let header = Object.keys(resp.headers).find(
       //   (key) => key.toLowerCase() === "subscription-userinfo"
       // );
