@@ -23,7 +23,7 @@ let args = getArgs();
   // if (resetDayLeft) {
   //   content.push(`重置：剩余${resetDayLeft}天`);
   // }
-  content.push(`所有：${info}`);
+  content.push(`所有：${info.map(String)}`);
   if (expire && expire !== "false") {
     if (/^[\d.]+$/.test(expire)) expire *= 1000;
     content.push(`到期：${formatTime(expire)}`);
