@@ -10,7 +10,7 @@
 let args = getArgs();
 
 (async () => {
-  let info = await getUserInfo(args.url);
+  let info = await getDataInfo(args.url);
   console.log('test4');
   if (!info) $done();
   let resetDayLeft = getRmainingDays(parseInt(args["reset_day"]));
