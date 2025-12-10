@@ -1,8 +1,8 @@
-# DOMAIN-SUFFIX,ibkr.com
+DOMAIN-SUFFIX,ibkr.com
 DOMAIN-SUFFIX,ibkr.com.hk
 DOMAIN-SUFFIX,interactivebrokers.com
 DOMAIN-SUFFIX,interactivebrokers.com.hk
-DOMAIN-KEYWORD,ibllc
+# DOMAIN-KEYWORD,ibllc
 DOMAIN-SUFFIX,bac-assets.com
 DOMAIN-SUFFIX,bac-assets.com.hk
 DOMAIN-SUFFIX,bankofamerica.com
