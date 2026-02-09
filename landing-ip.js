@@ -9,12 +9,21 @@ const $ = $substore;
  *   "position": "suffix",
  *   "concurrency": "6",
  *   "timeout": "8000",
- *   "cacheHours": "12",
+ *   "cacheHours": "24",
+ *   "cleanupCache": "true",
+ *   "forceRefresh": "false",
+ *   "cacheOnly": "false",
  *   "showIsp": "true",
  *   "showCity": "false",
  *   "failTag": "❌落地失败",
  *   "keepFlag": "true"
  * }
+ *
+ * Recommended workflow:
+ * 1) Daily prefetch task:
+ *    forceRefresh=true, rename=false (probe + refresh cache only)
+ * 2) Gist sync task:
+ *    cacheOnly=true (read cached landing IP, no active probing)
  */
 
 const {
@@ -22,7 +31,10 @@ const {
   position = "suffix",
   concurrency = "6",
   timeout = "12000",
-  cacheHours = "12",
+  cacheHours = "24",
+  cleanupCache = "true",
+  forceRefresh = "false",
+  cacheOnly = "false",
   engine = "http-meta",
   httpMetaUrl = "http://127.0.0.1:9876",
   probeTimeoutMs = "45000",
@@ -41,14 +53,20 @@ const CACHE_PREFIX = "landing-ip:";
 async function operator(proxies = []) {
   const c = toPositiveInt(concurrency, 6);
   const t = toPositiveInt(timeout, 8000);
-  const ttlMs = Math.max(1, toPositiveInt(cacheHours, 12)) * 3600 * 1000;
+  const ttlMs = Math.max(1, toPositiveInt(cacheHours, 24)) * 3600 * 1000;
+  const shouldCleanupCache = String(cleanupCache) !== "false";
   const doRename = String(rename) !== "false";
+  const doForceRefresh = String(forceRefresh) === "true";
+  const doCacheOnly = String(cacheOnly) === "true";
   const useIsp = String(showIsp) !== "false";
   const useCity = String(showCity) === "true";
   const retainFlag = String(keepFlag) !== "false";
   const mode = String(engine).toLowerCase();
+  if (shouldCleanupCache) {
+    cleanupCachePrefix(CACHE_PREFIX);
+  }
   let metaCtx = null;
-  if (mode !== "node") {
+  if (mode !== "node" && !doCacheOnly) {
     metaCtx = await startHttpMetaBatch(proxies, t);
   }
 
@@ -63,6 +81,8 @@ async function operator(proxies = []) {
             timeout: t,
             ttlMs,
             doRename,
+            doForceRefresh,
+            doCacheOnly,
             useIsp,
             useCity,
             retainFlag,
@@ -86,9 +106,15 @@ async function operator(proxies = []) {
 
 async function probeOne(proxy, opts) {
   const cacheKey = getCacheKey(proxy);
-  const cached = getCache(cacheKey, opts.ttlMs);
+  const cached = opts.doForceRefresh ? null : getCache(cacheKey, opts.ttlMs);
   if (cached) {
     applyProbeResult(proxy, cached, opts);
+    return;
+  }
+
+  if (opts.doCacheOnly) {
+    proxy._landing_error = "CACHE_MISS";
+    $.info(`landing-ip ${proxy.name}: skip probing in cacheOnly mode`);
     return;
   }
 
@@ -100,7 +126,7 @@ async function probeOne(proxy, opts) {
       throw new Error("落地 IP 查询失败: 返回数据不完整");
     }
 
-    setCache(cacheKey, result);
+    setCache(cacheKey, result, opts.ttlMs);
     applyProbeResult(proxy, result, opts);
   } catch (err) {
     proxy._landing_ip = "";
@@ -348,14 +374,28 @@ function getCacheKey(proxy) {
 
 function getCache(key, ttlMs) {
   if (typeof scriptResourceCache === "undefined") return null;
-  const value = scriptResourceCache.get(key, ttlMs, true);
+  // Prefer official pattern: write cache with TTL, read directly.
+  // ttlMs is kept for backward compatibility with old cache entries.
+  let value = scriptResourceCache.get(key);
+  if (!value) {
+    value = scriptResourceCache.get(key, ttlMs, true);
+  }
   if (!value || typeof value !== "object") return null;
   return value;
 }
 
-function setCache(key, value) {
+function setCache(key, value, ttlMs) {
   if (typeof scriptResourceCache === "undefined") return;
-  scriptResourceCache.set(key, value);
+  scriptResourceCache.set(key, value, ttlMs);
+}
+
+function cleanupCachePrefix(prefix) {
+  if (typeof scriptResourceCache === "undefined") return;
+  try {
+    scriptResourceCache._cleanup(prefix);
+  } catch (_) {
+    // Some runtime builds may not expose _cleanup
+  }
 }
 
 function toPositiveInt(value, fallback) {
