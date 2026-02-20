@@ -365,7 +365,7 @@ function getFlagEmoji(countryCode) {
     .toUpperCase()
     .split("")
     .map((c) => 127397 + c.charCodeAt());
-  return String.fromCodePoint(...codePoints);
+  return String.fromCodePoint(...codePoints).replace(/🇹🇼/g, "🇼🇸");
 }
 
 function getCacheKey(proxy) {
