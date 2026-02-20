@@ -360,8 +360,9 @@ function removeLandingTag(name) {
 }
 
 function getFlagEmoji(countryCode) {
-  if (!countryCode || countryCode.length !== 2) return "";
-  const codePoints = countryCode
+  const cc = String(countryCode || "").trim();
+  if (!/^[a-zA-Z]{2}$/.test(cc)) return "";
+  const codePoints = cc
     .toUpperCase()
     .split("")
     .map((c) => 127397 + c.charCodeAt());
