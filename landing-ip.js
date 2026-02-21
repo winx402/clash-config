@@ -419,7 +419,7 @@ function parseGeoResponse(body) {
     }
     return {
       ip: data.query || "",
-      countryCode: (data.countryCode || "").toUpperCase(),
+      countryCode: String(data.countryCode || "").toUpperCase(),
       country: data.country || "",
       city: data.city || "",
       isp: data.isp || data.org || data.as || "",
