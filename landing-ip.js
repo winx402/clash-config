@@ -360,10 +360,9 @@ function removeLandingTag(name) {
 }
 
 function getFlagEmoji(countryCode) {
-  const cc = String(countryCode || "").trim();
+  const cc = safeUpper(countryCode);
   if (!/^[a-zA-Z]{2}$/.test(cc)) return "";
   const codePoints = cc
-    .toUpperCase()
     .split("")
     .map((c) => 127397 + c.charCodeAt());
   return String.fromCodePoint(...codePoints).replace(/🇹🇼/g, "🇼🇸");
@@ -419,7 +418,7 @@ function parseGeoResponse(body) {
     }
     return {
       ip: data.query || "",
-      countryCode: String(data.countryCode || "").toUpperCase(),
+      countryCode: safeUpper(data.countryCode),
       country: data.country || "",
       city: data.city || "",
       isp: data.isp || data.org || data.as || "",
@@ -431,7 +430,7 @@ function parseGeoResponse(body) {
   if (data.ip || data.country_code || data.country) {
     return {
       ip: data.ip || "",
-      countryCode: String(data.country_code || "").toUpperCase(),
+      countryCode: safeUpper(data.country_code),
       country: data.country || "",
       city: data.city || "",
       isp: data.isp || data.organization || data.asn_organization || "",
@@ -446,7 +445,7 @@ function parseGeoResponse(body) {
     }
     return {
       ip: data.ip || "",
-      countryCode: String(data.country_code || "").toUpperCase(),
+      countryCode: safeUpper(data.country_code),
       country: data.country || "",
       city: data.city || "",
       isp: (data.connection && data.connection.isp) || "",
@@ -478,4 +477,12 @@ function extractError(err) {
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function safeUpper(value) {
+  try {
+    return String(value ?? "").toUpperCase();
+  } catch (_) {
+    return "";
+  }
 }
