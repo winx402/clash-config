@@ -37,6 +37,7 @@ const {
 } = $arguments;
 
 const CACHE_PREFIX = "landing-ip:";
+const NODE_AVAILABLE_FIELD = "_node_available";
 
 async function operator(proxies = []) {
   const c = toPositiveInt(concurrency, 6);
@@ -85,6 +86,10 @@ async function operator(proxies = []) {
 }
 
 async function probeOne(proxy, opts) {
+  if (!isNodeAvailable(proxy)) {
+    return;
+  }
+
   const cacheKey = getCacheKey(proxy);
   const cached = getCache(cacheKey, opts.ttlMs);
   if (cached) {
@@ -103,6 +108,7 @@ async function probeOne(proxy, opts) {
     setCache(cacheKey, result, opts.ttlMs);
     applyProbeResult(proxy, result, opts);
   } catch (err) {
+    setNodeAvailable(proxy, false);
     proxy._landing_ip = "";
     proxy._landing_country_code = "";
     proxy._landing_country = "";
@@ -117,6 +123,7 @@ async function probeOne(proxy, opts) {
 }
 
 function applyProbeResult(proxy, result, opts) {
+  setNodeAvailable(proxy, true);
   proxy._landing_ip = result.ip || "";
   proxy._landing_country_code = result.countryCode || "";
   proxy._landing_country = result.country || "";
@@ -450,4 +457,20 @@ function safeUpper(value) {
   } catch (_) {
     return "";
   }
+}
+
+function isNodeAvailable(proxy) {
+  if (!proxy || typeof proxy !== "object") return true;
+  const v = proxy[NODE_AVAILABLE_FIELD];
+  if (v === undefined || v === null || v === "") return true;
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  const s = String(v).trim().toLowerCase();
+  if (!s) return true;
+  return !["0", "false", "no", "off", "down", "unavailable", "disabled"].includes(s);
+}
+
+function setNodeAvailable(proxy, available) {
+  if (!proxy || typeof proxy !== "object") return;
+  proxy[NODE_AVAILABLE_FIELD] = Boolean(available);
 }

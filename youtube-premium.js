@@ -35,6 +35,7 @@ const {
 } = $arguments;
 
 const CACHE_PREFIX = "yt-premium:";
+const NODE_AVAILABLE_FIELD = "_node_available";
 
 async function operator(proxies = []) {
   const c = toPositiveInt(concurrency, 6);
@@ -79,6 +80,10 @@ async function operator(proxies = []) {
 }
 
 async function probeOne(proxy, opts) {
+  if (!isNodeAvailable(proxy)) {
+    return;
+  }
+
   const cacheKey = getCacheKey(proxy);
   const cached = getCache(cacheKey, opts.ttlMs);
   if (cached) {
@@ -381,4 +386,15 @@ function extractError(err) {
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function isNodeAvailable(proxy) {
+  if (!proxy || typeof proxy !== "object") return true;
+  const v = proxy[NODE_AVAILABLE_FIELD];
+  if (v === undefined || v === null || v === "") return true;
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  const s = String(v).trim().toLowerCase();
+  if (!s) return true;
+  return !["0", "false", "no", "off", "down", "unavailable", "disabled"].includes(s);
 }
