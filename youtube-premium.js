@@ -1,19 +1,18 @@
 const $ = $substore;
 
 /*
- * Sub-Store Script Operator: Detect landing IP through each proxy node.
+ * Sub-Store Script Operator: detect whether each proxy supports YouTube Premium.
  *
  * Suggested args:
  * {
  *   "rename": "true",
  *   "position": "suffix",
  *   "concurrency": "6",
- *   "timeout": "8000",
+ *   "timeout": "12000",
  *   "cacheHours": "24",
- *   "showIsp": "true",
- *   "showCity": "false",
- *   "failTag": "❌落地失败",
- *   "keepFlag": "true"
+ *   "engine": "http-meta",
+ *   "httpMetaUrl": "http://127.0.0.1:9876",
+ *   "queryUrl": "https://www.youtube.com/premium"
  * }
  */
 
@@ -29,24 +28,21 @@ const {
   startupDelayMs = "250",
   connectRetries = "8",
   retryIntervalMs = "180",
-  showIsp = "true",
-  showCity = "false",
-  keepFlag = "true",
-  failTag = "❌落地失败",
-  queryUrl = "https://api.ip.sb/geoip",
+  queryUrl = "https://www.youtube.com/premium",
+  acceptLanguage = "en",
+  userAgent =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
 } = $arguments;
 
-const CACHE_PREFIX = "landing-ip:";
+const CACHE_PREFIX = "yt-premium:";
 
 async function operator(proxies = []) {
   const c = toPositiveInt(concurrency, 6);
-  const t = toPositiveInt(timeout, 8000);
+  const t = toPositiveInt(timeout, 12000);
   const ttlMs = Math.max(1, toPositiveInt(cacheHours, 24)) * 3600 * 1000;
   const doRename = String(rename) !== "false";
-  const useIsp = String(showIsp) !== "false";
-  const useCity = String(showCity) === "true";
-  const retainFlag = String(keepFlag) !== "false";
   const mode = String(engine).toLowerCase();
+
   let metaCtx = null;
   if (mode !== "node") {
     metaCtx = await startHttpMetaBatch(proxies, t);
@@ -63,9 +59,6 @@ async function operator(proxies = []) {
             timeout: t,
             ttlMs,
             doRename,
-            useIsp,
-            useCity,
-            retainFlag,
             mode,
             metaCtx,
           });
@@ -81,6 +74,7 @@ async function operator(proxies = []) {
       await tryStopMeta(metaCtx.pid);
     }
   }
+
   return proxies;
 }
 
@@ -94,66 +88,75 @@ async function probeOne(proxy, opts) {
 
   try {
     const node = buildNodeDescriptor(proxy);
-    const resp = await queryLanding(proxy, opts, node);
-    const result = parseGeoResponse(resp.body);
-    if (!result.ip) {
-      throw new Error("落地 IP 查询失败: 返回数据不完整");
-    }
-
+    const resp = await queryYoutube(proxy, opts, node);
+    const result = parseYoutubePremium(resp.body || "");
     setCache(cacheKey, result, opts.ttlMs);
     applyProbeResult(proxy, result, opts);
   } catch (err) {
-    proxy._landing_ip = "";
-    proxy._landing_country_code = "";
-    proxy._landing_country = "";
-    proxy._landing_city = "";
-    proxy._landing_isp = "";
-    proxy._landing_error = extractError(err);
-    if (opts.doRename && failTag) {
-      proxy.name = `${removeLandingTag(proxy.name)} ${failTag}`.trim();
+    proxy._yt_premium_supported = "";
+    proxy._yt_premium_error = extractError(err);
+
+    if (opts.doRename) {
+      const clean = removeYtTag(proxy.name);
+      proxy.name = clean;
     }
-    $.error(`landing-ip ${proxy.name}: ${proxy._landing_error}`);
+
+    $.error(`yt-premium ${proxy.name}: ${proxy._yt_premium_error}`);
   }
 }
 
 function applyProbeResult(proxy, result, opts) {
-  proxy._landing_ip = result.ip || "";
-  proxy._landing_country_code = result.countryCode || "";
-  proxy._landing_country = result.country || "";
-  proxy._landing_city = result.city || "";
-  proxy._landing_isp = result.isp || "";
-  proxy._landing_error = "";
+  proxy._yt_premium_supported = String(Boolean(result.supported));
+  proxy._yt_premium_error = "";
 
   if (!opts.doRename) return;
 
-  const parts = [];
-  if (opts.retainFlag && result.countryCode) {
-    parts.push(getFlagEmoji(result.countryCode));
-  }
-  if (result.countryCode || result.country) {
-    parts.push(result.countryCode || result.country);
-  }
-  if (result.ip) {
-    parts.push(result.ip);
-  }
-  if (opts.useCity && result.city) {
-    parts.push(result.city);
-  }
-  if (opts.useIsp && result.isp) {
-    parts.push(result.isp);
-  }
-
-  const landingText = `[落地 ${parts.join(" | ")}]`;
-  const cleanName = removeLandingTag(proxy.name);
-  if (String(position).toLowerCase() === "prefix") {
-    proxy.name = `${landingText} ${cleanName}`.trim();
+  const clean = removeYtTag(proxy.name);
+  if (result.supported) {
+    const tag = "[YTP]";
+    if (String(position).toLowerCase() === "prefix") {
+      proxy.name = `${tag} ${clean}`.trim();
+    } else {
+      proxy.name = `${clean} ${tag}`.trim();
+    }
   } else {
-    proxy.name = `${cleanName} ${landingText}`.trim();
+    proxy.name = clean;
   }
 }
 
+function removeYtTag(name) {
+  return String(name || "")
+    .replace(/\s*\[YTP[^\]]*\]\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseYoutubePremium(body) {
+  const text = String(body || "");
+  if (!text.trim()) throw new Error("EMPTY_RESPONSE");
+
+  if (/(Premium is not available in your country)/i.test(text)) {
+    return {
+      supported: false,
+      at: Date.now(),
+    };
+  }
+
+  if (/consent\.youtube\.com|Before you continue to YouTube/i.test(text)) {
+    throw new Error("CONSENT_REQUIRED");
+  }
+
+  if (/unusual traffic from your computer network/i.test(text)) {
+    throw new Error("GOOGLE_CHALLENGE");
+  }
+
+  return {
+    supported: true,
+    at: Date.now(),
+  };
+}
+
 function buildNodeDescriptor(proxy) {
-  // Try common targets to maximize compatibility across different sub-store runtimes.
   const candidates = ["Surge", "Loon", "ClashMeta", "Clash"];
   for (const target of candidates) {
     try {
@@ -165,37 +168,45 @@ function buildNodeDescriptor(proxy) {
       }
       if (node.trim()) return node.trim();
     } catch (_) {
-      // ignore and continue
+      // ignore
     }
   }
   return "";
 }
 
-async function queryLanding(proxy, opts, node) {
+async function queryYoutube(proxy, opts, node) {
+  const headers = {
+    "accept-language": acceptLanguage,
+    "user-agent": userAgent,
+  };
+
   if (opts.mode === "node") {
     if (!node) {
-      throw new Error("无法生成节点描述，通常是节点类型不兼容");
+      throw new Error("NODE_DESCRIPTOR_EMPTY");
     }
     return $.http.get({
       url: queryUrl,
       timeout: opts.timeout,
       node,
+      headers,
     });
   }
 
-  return queryLandingViaHttpMeta(proxy, opts);
+  return queryYoutubeViaHttpMeta(proxy, opts, headers);
 }
 
-async function queryLandingViaHttpMeta(proxy, opts) {
+async function queryYoutubeViaHttpMeta(proxy, opts, headers) {
   const ctx = opts.metaCtx;
   if (!ctx || !Array.isArray(ctx.ports)) {
-    throw new Error("http-meta 未就绪");
+    throw new Error("HTTP_META_NOT_READY");
   }
+
   const idx = ctx.proxies.indexOf(proxy);
   const proxyPort = ctx.ports[idx];
   if (!proxyPort) {
-    throw new Error("http-meta 端口映射失败");
+    throw new Error("HTTP_META_PORT_MISSING");
   }
+
   const delay = toPositiveInt(startupDelayMs, 250);
   const retries = toPositiveInt(connectRetries, 8);
   const step = toPositiveInt(retryIntervalMs, 180);
@@ -203,8 +214,8 @@ async function queryLandingViaHttpMeta(proxy, opts) {
     `socks5://127.0.0.1:${proxyPort}`,
     `socks5://localhost:${proxyPort}`,
   ];
-  let lastErr = null;
 
+  let lastErr = null;
   await sleep(delay);
 
   for (let i = 0; i < retries; i++) {
@@ -214,6 +225,7 @@ async function queryLandingViaHttpMeta(proxy, opts) {
           url: queryUrl,
           timeout: opts.timeout,
           proxy: p,
+          headers,
         });
       } catch (err) {
         lastErr = err;
@@ -221,21 +233,22 @@ async function queryLandingViaHttpMeta(proxy, opts) {
     }
     await sleep(step);
   }
+
   throw new Error(
-    `http-meta 代理端口连接失败: ${extractError(lastErr)} @${proxyPort}`
+    `HTTP_META_CONNECT_FAILED: ${extractError(lastErr)} @${proxyPort}`
   );
 }
 
 async function startHttpMetaBatch(proxies, timeoutMs) {
   const base = String(httpMetaUrl || "").replace(/\/+$/, "");
-  if (!base) {
-    throw new Error("httpMetaUrl 不能为空");
-  }
+  if (!base) throw new Error("HTTP_META_URL_EMPTY");
+
   const normalized = proxies.map((p) => normalizeProxyForMeta(p));
   if (normalized.length !== proxies.length || normalized.some((p) => !p || !p.type)) {
     const bad = normalized.filter((p) => !p || !p.type).length;
-    throw new Error(`节点转换失败: ${bad} 个节点无法转换为 ClashMeta`);
+    throw new Error(`PROXY_CONVERT_FAILED: ${bad}`);
   }
+
   const started = await $.http.post({
     url: `${base}/start`,
     timeout: timeoutMs,
@@ -249,7 +262,7 @@ async function startHttpMetaBatch(proxies, timeoutMs) {
   const payload = JSON.parse(started.body || "{}");
   const ports = Array.isArray(payload.ports) ? payload.ports : [];
   if (!ports.length) {
-    throw new Error(`http-meta 启动失败: ${started.body || "无可用端口"}`);
+    throw new Error(`HTTP_META_START_FAILED: ${started.body || "NO_PORTS"}`);
   }
 
   return {
@@ -262,6 +275,7 @@ async function startHttpMetaBatch(proxies, timeoutMs) {
 async function tryStopMeta(pid) {
   const base = String(httpMetaUrl || "").replace(/\/+$/, "");
   if (!base || !pid) return;
+
   try {
     await $.http.post({
       url: `${base}/stop`,
@@ -270,8 +284,48 @@ async function tryStopMeta(pid) {
       body: JSON.stringify({ pid }),
     });
   } catch (_) {
-    // http-meta stop may fail on some builds
+    // ignore
   }
+}
+
+function normalizeProxyForMeta(proxy) {
+  try {
+    const text = ProxyUtils.produce(
+      [proxy],
+      "ClashMeta",
+      undefined,
+      { "include-unsupported-proxy": true }
+    );
+    const parsed = parseProducedProxy(text);
+    if (parsed) return parsed;
+  } catch (_) {
+    // ignore
+  }
+  return sanitizeProxy(proxy);
+}
+
+function parseProducedProxy(text) {
+  if (!text || typeof text !== "string") return null;
+
+  try {
+    if (ProxyUtils && ProxyUtils.yaml && ProxyUtils.yaml.parse) {
+      const y = ProxyUtils.yaml.parse(text);
+      if (Array.isArray(y) && y.length && isPlainObject(y[0])) return y[0];
+      if (y && Array.isArray(y.proxies) && y.proxies.length) return y.proxies[0];
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  try {
+    const j = JSON.parse(text);
+    if (Array.isArray(j) && j.length && isPlainObject(j[0])) return j[0];
+    if (j && Array.isArray(j.proxies) && j.proxies.length) return j.proxies[0];
+  } catch (_) {
+    // ignore
+  }
+
+  return null;
 }
 
 function sanitizeProxy(proxy) {
@@ -284,72 +338,12 @@ function sanitizeProxy(proxy) {
   return out;
 }
 
-function normalizeProxyForMeta(proxy) {
-  // Convert internal proxy schema to ClashMeta-compatible proxy object first.
-  // If conversion fails, fallback to sanitized raw object.
-  try {
-    const text = ProxyUtils.produce(
-      [proxy],
-      "ClashMeta",
-      undefined,
-      { "include-unsupported-proxy": true }
-    );
-    const parsed = parseProducedProxy(text);
-    if (parsed) return parsed;
-  } catch (_) {
-    // fallback below
-  }
-  return sanitizeProxy(proxy);
-}
-
-function parseProducedProxy(text) {
-  if (!text || typeof text !== "string") return null;
-  // Try YAML first
-  try {
-    if (ProxyUtils && ProxyUtils.yaml && ProxyUtils.yaml.parse) {
-      const y = ProxyUtils.yaml.parse(text);
-      if (Array.isArray(y) && y.length && isPlainObject(y[0])) return y[0];
-      if (y && Array.isArray(y.proxies) && y.proxies.length) return y.proxies[0];
-    }
-  } catch (_) {
-    // continue
-  }
-  // Fallback JSON parse
-  try {
-    const j = JSON.parse(text);
-    if (Array.isArray(j) && j.length && isPlainObject(j[0])) return j[0];
-    if (j && Array.isArray(j.proxies) && j.proxies.length) return j.proxies[0];
-  } catch (_) {
-    // ignore
-  }
-  return null;
-}
-
-function removeLandingTag(name) {
-  return String(name || "")
-    .replace(/\s*\[落地[^\]]*\]\s*/g, " ")
-    .replace(/\s*❌落地失败\s*/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function getFlagEmoji(countryCode) {
-  const cc = safeUpper(countryCode);
-  if (!/^[a-zA-Z]{2}$/.test(cc)) return "";
-  const codePoints = cc
-    .split("")
-    .map((c) => 127397 + c.charCodeAt());
-  return String.fromCodePoint(...codePoints).replace(/🇹🇼/g, "🇼🇸");
-}
-
 function getCacheKey(proxy) {
   return `${CACHE_PREFIX}${proxy.server}:${proxy.port}:${proxy.type || ""}`;
 }
 
 function getCache(key, ttlMs) {
   if (typeof scriptResourceCache === "undefined") return null;
-  // Prefer official pattern: write cache with TTL, read directly.
-  // ttlMs is kept for backward compatibility with old cache entries.
   let value = scriptResourceCache.get(key);
   if (!value) {
     value = scriptResourceCache.get(key, ttlMs, true);
@@ -373,61 +367,6 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function parseGeoResponse(body) {
-  const data = JSON.parse(body || "{}");
-
-  // ip-api schema
-  if (typeof data.status === "string") {
-    if (data.status !== "success") {
-      throw new Error(data.message || "ip-api 查询失败");
-    }
-    return {
-      ip: data.query || "",
-      countryCode: safeUpper(data.countryCode),
-      country: data.country || "",
-      city: data.city || "",
-      isp: data.isp || data.org || data.as || "",
-      at: Date.now(),
-    };
-  }
-
-  // ip.sb schema
-  if (data.ip || data.country_code || data.country) {
-    return {
-      ip: data.ip || "",
-      countryCode: safeUpper(data.country_code),
-      country: data.country || "",
-      city: data.city || "",
-      isp: data.isp || data.organization || data.asn_organization || "",
-      at: Date.now(),
-    };
-  }
-
-  // ipwho.is schema
-  if (Object.prototype.hasOwnProperty.call(data, "success")) {
-    if (data.success === false) {
-      throw new Error(data.message || "ipwho.is 查询失败");
-    }
-    return {
-      ip: data.ip || "",
-      countryCode: safeUpper(data.country_code),
-      country: data.country || "",
-      city: data.city || "",
-      isp: (data.connection && data.connection.isp) || "",
-      at: Date.now(),
-    };
-  }
-
-  return {
-    ip: "",
-    countryCode: "",
-    country: "",
-    city: "",
-    isp: "",
-    at: Date.now(),
-  };
-}
-
 function extractError(err) {
   if (!err) return "UnknownError";
   if (typeof err === "string") return err;
@@ -442,12 +381,4 @@ function extractError(err) {
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function safeUpper(value) {
-  try {
-    return String(value ?? "").toUpperCase();
-  } catch (_) {
-    return "";
-  }
 }
