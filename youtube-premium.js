@@ -218,6 +218,8 @@ async function queryYoutubeViaHttpMeta(proxy, opts, headers) {
   const proxyCandidates = [
     `socks5://127.0.0.1:${proxyPort}`,
     `socks5://localhost:${proxyPort}`,
+    `http://127.0.0.1:${proxyPort}`,
+    `http://localhost:${proxyPort}`,
   ];
 
   let lastErr = null;

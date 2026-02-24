@@ -1,23 +1,27 @@
 const $ = $substore;
 
 /*
- * Sub-Store Script Operator: Detect landing IP through each proxy node.
+ * Sub-Store Script Operator: Node probe (landing IP + YouTube Premium).
  *
  * Suggested args:
  * {
+ *   "checkLanding": "true",
+ *   "checkYoutube": "true",
  *   "rename": "true",
  *   "position": "suffix",
- *   "concurrency": "6",
- *   "timeout": "8000",
+ *   "concurrency": "12",
+ *   "timeout": "12000",
  *   "cacheHours": "24",
- *   "showIsp": "true",
- *   "showCity": "false",
- *   "failTag": "❌落地失败",
- *   "keepFlag": "true"
+ *   "engine": "http-meta",
+ *   "httpMetaUrl": "http://127.0.0.1:9876",
+ *   "landingQueryUrl": "https://api.ip.sb/geoip",
+ *   "youtubeQueryUrl": "https://www.youtube.com/premium"
  * }
  */
 
 const {
+  checkLanding = "true",
+  checkYoutube = "true",
   rename = "true",
   position = "suffix",
   concurrency = "12",
@@ -33,21 +37,34 @@ const {
   showCity = "false",
   keepFlag = "true",
   failTag = "❌落地失败",
-  queryUrl = "https://api.ip.sb/geoip",
+  landingQueryUrl = "https://api.ip.sb/geoip",
+  youtubeQueryUrl = "https://www.youtube.com/premium",
+  acceptLanguage = "en",
+  userAgent =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
 } = $arguments;
 
-const CACHE_PREFIX = "landing-ip:";
+const LANDING_CACHE_PREFIX = "landing-ip:";
+const YT_CACHE_PREFIX = "yt-premium:";
 const NODE_AVAILABLE_FIELD = "_node_available";
 
 async function operator(proxies = []) {
-  const c = toPositiveInt(concurrency, 6);
-  const t = toPositiveInt(timeout, 8000);
+  const c = toPositiveInt(concurrency, 12);
+  const t = toPositiveInt(timeout, 12000);
   const ttlMs = Math.max(1, toPositiveInt(cacheHours, 24)) * 3600 * 1000;
   const doRename = String(rename) !== "false";
+  const doCheckLanding = String(checkLanding) !== "false";
+  const doCheckYoutube = String(checkYoutube) !== "false";
   const useIsp = String(showIsp) !== "false";
   const useCity = String(showCity) === "true";
   const retainFlag = String(keepFlag) !== "false";
   const mode = String(engine).toLowerCase();
+
+  if (!doCheckLanding && !doCheckYoutube) {
+    $.info("node-probe: both checks disabled");
+    return proxies;
+  }
+
   let metaCtx = null;
   if (mode !== "node") {
     metaCtx = await startHttpMetaBatch(proxies, t);
@@ -64,6 +81,8 @@ async function operator(proxies = []) {
             timeout: t,
             ttlMs,
             doRename,
+            doCheckLanding,
+            doCheckYoutube,
             useIsp,
             useCity,
             retainFlag,
@@ -82,6 +101,7 @@ async function operator(proxies = []) {
       await tryStopMeta(metaCtx.pid);
     }
   }
+
   return proxies;
 }
 
@@ -90,49 +110,99 @@ async function probeOne(proxy, opts) {
     return;
   }
 
-  const cacheKey = getCacheKey(proxy);
+  const node = buildNodeDescriptor(proxy);
+
+  // Run landing check first.
+  if (opts.doCheckLanding) {
+    await probeLandingOne(proxy, opts, node);
+  }
+
+  // Run YouTube check in the same loop and honor availability from landing stage.
+  if (opts.doCheckYoutube && isNodeAvailable(proxy)) {
+    await probeYoutubeOne(proxy, opts, node);
+  }
+}
+
+async function probeLandingOne(proxy, opts, node) {
+  const cacheKey = getLandingCacheKey(proxy);
   const cached = getCache(cacheKey, opts.ttlMs);
   if (cached) {
-    applyProbeResult(proxy, cached, opts);
+    applyLandingResult(proxy, cached, opts);
     return;
   }
 
   let reachedByProxy = false;
   try {
-    const node = buildNodeDescriptor(proxy);
-    const resp = await queryLanding(proxy, opts, node);
+    const resp = await requestThroughProxy(proxy, opts, node, {
+      url: landingQueryUrl,
+    });
     reachedByProxy = true;
-    // A successful outbound request means the node path is reachable, even if geo API payload is malformed.
+    // Reachable proxy path even if geo payload is malformed.
     setNodeAvailable(proxy, true);
+
     const result = parseGeoResponse(resp.body);
     if (!result.ip) {
       throw new Error("落地 IP 查询失败: 返回数据不完整");
     }
 
     setCache(cacheKey, result, opts.ttlMs);
-    applyProbeResult(proxy, result, opts);
+    applyLandingResult(proxy, result, opts);
   } catch (err) {
-    // Mark unavailable only when probe path is unreachable.
-    // Geo API format/rate-limit issues should not downgrade node availability.
     const errorText = extractError(err);
     if (!reachedByProxy) {
       setNodeAvailable(proxy, false);
     }
+
     proxy._landing_ip = "";
     proxy._landing_country_code = "";
     proxy._landing_country = "";
     proxy._landing_city = "";
     proxy._landing_isp = "";
     proxy._landing_error = errorText;
+
     if (opts.doRename && failTag) {
       proxy.name = `${removeLandingTag(proxy.name)} ${failTag}`.trim();
     }
+
     $.error(`landing-ip ${proxy.name}: ${proxy._landing_error}`);
   }
 }
 
-function applyProbeResult(proxy, result, opts) {
+async function probeYoutubeOne(proxy, opts, node) {
+  const cacheKey = getYoutubeCacheKey(proxy);
+  const cached = getCache(cacheKey, opts.ttlMs);
+  if (cached) {
+    applyYoutubeResult(proxy, cached, opts);
+    return;
+  }
+
+  try {
+    const resp = await requestThroughProxy(proxy, opts, node, {
+      url: youtubeQueryUrl,
+      headers: {
+        "accept-language": acceptLanguage,
+        "user-agent": userAgent,
+      },
+    });
+
+    const result = parseYoutubePremium(resp.body || "");
+    setCache(cacheKey, result, opts.ttlMs);
+    applyYoutubeResult(proxy, result, opts);
+  } catch (err) {
+    proxy._yt_premium_supported = "";
+    proxy._yt_premium_error = extractError(err);
+
+    if (opts.doRename) {
+      proxy.name = removeYtTag(proxy.name);
+    }
+
+    $.error(`yt-premium ${proxy.name}: ${proxy._yt_premium_error}`);
+  }
+}
+
+function applyLandingResult(proxy, result, opts) {
   setNodeAvailable(proxy, true);
+
   proxy._landing_ip = result.ip || "";
   proxy._landing_country_code = result.countryCode || "";
   proxy._landing_country = result.country || "";
@@ -168,50 +238,55 @@ function applyProbeResult(proxy, result, opts) {
   }
 }
 
-function buildNodeDescriptor(proxy) {
-  // Try common targets to maximize compatibility across different sub-store runtimes.
-  const candidates = ["Surge", "Loon", "ClashMeta", "Clash"];
-  for (const target of candidates) {
-    try {
-      let node = ProxyUtils.produce([proxy], target);
-      if (!node || typeof node !== "string") continue;
-      if (target === "Loon") {
-        const idx = node.indexOf("=");
-        if (idx > -1) node = node.substring(idx + 1).trim();
-      }
-      if (node.trim()) return node.trim();
-    } catch (_) {
-      // ignore and continue
+function applyYoutubeResult(proxy, result, opts) {
+  proxy._yt_premium_supported = String(Boolean(result.supported));
+  proxy._yt_premium_error = "";
+
+  if (!opts.doRename) return;
+
+  const clean = removeYtTag(proxy.name);
+  if (result.supported) {
+    const tag = "[YTP]";
+    if (String(position).toLowerCase() === "prefix") {
+      proxy.name = `${tag} ${clean}`.trim();
+    } else {
+      proxy.name = `${clean} ${tag}`.trim();
     }
+  } else {
+    proxy.name = clean;
   }
-  return "";
 }
 
-async function queryLanding(proxy, opts, node) {
+async function requestThroughProxy(proxy, opts, node, req) {
+  const headers = req.headers || undefined;
+
   if (opts.mode === "node") {
     if (!node) {
-      throw new Error("无法生成节点描述，通常是节点类型不兼容");
+      throw new Error("NODE_DESCRIPTOR_EMPTY");
     }
     return $.http.get({
-      url: queryUrl,
+      url: req.url,
       timeout: opts.timeout,
       node,
+      headers,
     });
   }
 
-  return queryLandingViaHttpMeta(proxy, opts);
+  return requestViaHttpMeta(proxy, opts, req.url, headers);
 }
 
-async function queryLandingViaHttpMeta(proxy, opts) {
+async function requestViaHttpMeta(proxy, opts, url, headers) {
   const ctx = opts.metaCtx;
   if (!ctx || !Array.isArray(ctx.ports)) {
-    throw new Error("http-meta 未就绪");
+    throw new Error("HTTP_META_NOT_READY");
   }
+
   const idx = ctx.proxies.indexOf(proxy);
   const proxyPort = ctx.ports[idx];
   if (!proxyPort) {
-    throw new Error("http-meta 端口映射失败");
+    throw new Error("HTTP_META_PORT_MISSING");
   }
+
   const delay = toPositiveInt(startupDelayMs, 250);
   const retries = toPositiveInt(connectRetries, 8);
   const step = toPositiveInt(retryIntervalMs, 180);
@@ -221,17 +296,18 @@ async function queryLandingViaHttpMeta(proxy, opts) {
     `http://127.0.0.1:${proxyPort}`,
     `http://localhost:${proxyPort}`,
   ];
-  let lastErr = null;
 
+  let lastErr = null;
   await sleep(delay);
 
   for (let i = 0; i < retries; i++) {
     for (const p of proxyCandidates) {
       try {
         return await $.http.get({
-          url: queryUrl,
+          url,
           timeout: opts.timeout,
           proxy: p,
+          headers,
         });
       } catch (err) {
         lastErr = err;
@@ -239,156 +315,33 @@ async function queryLandingViaHttpMeta(proxy, opts) {
     }
     await sleep(step);
   }
-  throw new Error(
-    `http-meta 代理端口连接失败: ${extractError(lastErr)} @${proxyPort}`
-  );
+
+  throw new Error(`HTTP_META_CONNECT_FAILED: ${extractError(lastErr)} @${proxyPort}`);
 }
 
-async function startHttpMetaBatch(proxies, timeoutMs) {
-  const base = String(httpMetaUrl || "").replace(/\/+$/, "");
-  if (!base) {
-    throw new Error("httpMetaUrl 不能为空");
-  }
-  const normalized = proxies.map((p) => normalizeProxyForMeta(p));
-  if (normalized.length !== proxies.length || normalized.some((p) => !p || !p.type)) {
-    const bad = normalized.filter((p) => !p || !p.type).length;
-    throw new Error(`节点转换失败: ${bad} 个节点无法转换为 ClashMeta`);
-  }
-  const started = await $.http.post({
-    url: `${base}/start`,
-    timeout: timeoutMs,
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      timeout: toPositiveInt(probeTimeoutMs, 45000),
-      proxies: normalized,
-    }),
-  });
+function parseYoutubePremium(body) {
+  const text = String(body || "");
+  if (!text.trim()) throw new Error("EMPTY_RESPONSE");
 
-  const payload = JSON.parse(started.body || "{}");
-  const ports = Array.isArray(payload.ports) ? payload.ports : [];
-  if (!ports.length) {
-    throw new Error(`http-meta 启动失败: ${started.body || "无可用端口"}`);
+  if (/(Premium is not available in your country)/i.test(text)) {
+    return {
+      supported: false,
+      at: Date.now(),
+    };
+  }
+
+  if (/consent\.youtube\.com|Before you continue to YouTube/i.test(text)) {
+    throw new Error("CONSENT_REQUIRED");
+  }
+
+  if (/unusual traffic from your computer network/i.test(text)) {
+    throw new Error("GOOGLE_CHALLENGE");
   }
 
   return {
-    pid: payload.pid,
-    ports,
-    proxies,
+    supported: true,
+    at: Date.now(),
   };
-}
-
-async function tryStopMeta(pid) {
-  const base = String(httpMetaUrl || "").replace(/\/+$/, "");
-  if (!base || !pid) return;
-  try {
-    await $.http.post({
-      url: `${base}/stop`,
-      timeout: 3000,
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ pid }),
-    });
-  } catch (_) {
-    // http-meta stop may fail on some builds
-  }
-}
-
-function sanitizeProxy(proxy) {
-  const out = {};
-  const keys = Object.keys(proxy || {});
-  for (const key of keys) {
-    if (key.startsWith("_")) continue;
-    out[key] = proxy[key];
-  }
-  return out;
-}
-
-function normalizeProxyForMeta(proxy) {
-  // Convert internal proxy schema to ClashMeta-compatible proxy object first.
-  // If conversion fails, fallback to sanitized raw object.
-  try {
-    const text = ProxyUtils.produce(
-      [proxy],
-      "ClashMeta",
-      undefined,
-      { "include-unsupported-proxy": true }
-    );
-    const parsed = parseProducedProxy(text);
-    if (parsed) return parsed;
-  } catch (_) {
-    // fallback below
-  }
-  return sanitizeProxy(proxy);
-}
-
-function parseProducedProxy(text) {
-  if (!text || typeof text !== "string") return null;
-  // Try YAML first
-  try {
-    if (ProxyUtils && ProxyUtils.yaml && ProxyUtils.yaml.parse) {
-      const y = ProxyUtils.yaml.parse(text);
-      if (Array.isArray(y) && y.length && isPlainObject(y[0])) return y[0];
-      if (y && Array.isArray(y.proxies) && y.proxies.length) return y.proxies[0];
-    }
-  } catch (_) {
-    // continue
-  }
-  // Fallback JSON parse
-  try {
-    const j = JSON.parse(text);
-    if (Array.isArray(j) && j.length && isPlainObject(j[0])) return j[0];
-    if (j && Array.isArray(j.proxies) && j.proxies.length) return j.proxies[0];
-  } catch (_) {
-    // ignore
-  }
-  return null;
-}
-
-function removeLandingTag(name) {
-  return String(name || "")
-    .replace(/\s*\[落地[^\]]*\]\s*/g, " ")
-    .replace(/\s*❌落地失败\s*/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function getFlagEmoji(countryCode) {
-  const cc = safeUpper(countryCode);
-  if (!/^[a-zA-Z]{2}$/.test(cc)) return "";
-  const codePoints = cc
-    .split("")
-    .map((c) => 127397 + c.charCodeAt());
-  return String.fromCodePoint(...codePoints).replace(/🇹🇼/g, "🇼🇸");
-}
-
-function getCacheKey(proxy) {
-  return `${CACHE_PREFIX}${proxy.server}:${proxy.port}:${proxy.type || ""}`;
-}
-
-function getCache(key, ttlMs) {
-  if (typeof scriptResourceCache === "undefined") return null;
-  // Prefer official pattern: write cache with TTL, read directly.
-  // ttlMs is kept for backward compatibility with old cache entries.
-  let value = scriptResourceCache.get(key);
-  if (!value) {
-    value = scriptResourceCache.get(key, ttlMs, true);
-  }
-  if (!value || typeof value !== "object") return null;
-  return value;
-}
-
-function setCache(key, value, ttlMs) {
-  if (typeof scriptResourceCache === "undefined") return;
-  scriptResourceCache.set(key, value, ttlMs);
-}
-
-function toPositiveInt(value, fallback) {
-  const n = parseInt(String(value), 10);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return n;
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function parseGeoResponse(body) {
@@ -444,6 +397,182 @@ function parseGeoResponse(body) {
     isp: "",
     at: Date.now(),
   };
+}
+
+function buildNodeDescriptor(proxy) {
+  const candidates = ["Surge", "Loon", "ClashMeta", "Clash"];
+  for (const target of candidates) {
+    try {
+      let node = ProxyUtils.produce([proxy], target);
+      if (!node || typeof node !== "string") continue;
+      if (target === "Loon") {
+        const idx = node.indexOf("=");
+        if (idx > -1) node = node.substring(idx + 1).trim();
+      }
+      if (node.trim()) return node.trim();
+    } catch (_) {
+      // ignore and continue
+    }
+  }
+  return "";
+}
+
+async function startHttpMetaBatch(proxies, timeoutMs) {
+  const base = String(httpMetaUrl || "").replace(/\/+$/, "");
+  if (!base) {
+    throw new Error("httpMetaUrl 不能为空");
+  }
+
+  const normalized = proxies.map((p) => normalizeProxyForMeta(p));
+  if (normalized.length !== proxies.length || normalized.some((p) => !p || !p.type)) {
+    const bad = normalized.filter((p) => !p || !p.type).length;
+    throw new Error(`节点转换失败: ${bad} 个节点无法转换为 ClashMeta`);
+  }
+
+  const started = await $.http.post({
+    url: `${base}/start`,
+    timeout: timeoutMs,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      timeout: toPositiveInt(probeTimeoutMs, 45000),
+      proxies: normalized,
+    }),
+  });
+
+  const payload = JSON.parse(started.body || "{}");
+  const ports = Array.isArray(payload.ports) ? payload.ports : [];
+  if (!ports.length) {
+    throw new Error(`http-meta 启动失败: ${started.body || "无可用端口"}`);
+  }
+
+  return {
+    pid: payload.pid,
+    ports,
+    proxies,
+  };
+}
+
+async function tryStopMeta(pid) {
+  const base = String(httpMetaUrl || "").replace(/\/+$/, "");
+  if (!base || !pid) return;
+
+  try {
+    await $.http.post({
+      url: `${base}/stop`,
+      timeout: 3000,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pid }),
+    });
+  } catch (_) {
+    // ignore
+  }
+}
+
+function normalizeProxyForMeta(proxy) {
+  try {
+    const text = ProxyUtils.produce(
+      [proxy],
+      "ClashMeta",
+      undefined,
+      { "include-unsupported-proxy": true }
+    );
+    const parsed = parseProducedProxy(text);
+    if (parsed) return parsed;
+  } catch (_) {
+    // ignore
+  }
+  return sanitizeProxy(proxy);
+}
+
+function parseProducedProxy(text) {
+  if (!text || typeof text !== "string") return null;
+
+  try {
+    if (ProxyUtils && ProxyUtils.yaml && ProxyUtils.yaml.parse) {
+      const y = ProxyUtils.yaml.parse(text);
+      if (Array.isArray(y) && y.length && isPlainObject(y[0])) return y[0];
+      if (y && Array.isArray(y.proxies) && y.proxies.length) return y.proxies[0];
+    }
+  } catch (_) {
+    // continue
+  }
+
+  try {
+    const j = JSON.parse(text);
+    if (Array.isArray(j) && j.length && isPlainObject(j[0])) return j[0];
+    if (j && Array.isArray(j.proxies) && j.proxies.length) return j.proxies[0];
+  } catch (_) {
+    // ignore
+  }
+
+  return null;
+}
+
+function sanitizeProxy(proxy) {
+  const out = {};
+  const keys = Object.keys(proxy || {});
+  for (const key of keys) {
+    if (key.startsWith("_")) continue;
+    out[key] = proxy[key];
+  }
+  return out;
+}
+
+function removeLandingTag(name) {
+  return String(name || "")
+    .replace(/\s*\[落地[^\]]*\]\s*/g, " ")
+    .replace(/\s*❌落地失败\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function removeYtTag(name) {
+  return String(name || "")
+    .replace(/\s*\[YTP[^\]]*\]\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getFlagEmoji(countryCode) {
+  const cc = safeUpper(countryCode);
+  if (!/^[a-zA-Z]{2}$/.test(cc)) return "";
+  const codePoints = cc
+    .split("")
+    .map((c) => 127397 + c.charCodeAt());
+  return String.fromCodePoint(...codePoints).replace(/🇹🇼/g, "🇼🇸");
+}
+
+function getLandingCacheKey(proxy) {
+  return `${LANDING_CACHE_PREFIX}${proxy.server}:${proxy.port}:${proxy.type || ""}`;
+}
+
+function getYoutubeCacheKey(proxy) {
+  return `${YT_CACHE_PREFIX}${proxy.server}:${proxy.port}:${proxy.type || ""}`;
+}
+
+function getCache(key, ttlMs) {
+  if (typeof scriptResourceCache === "undefined") return null;
+  let value = scriptResourceCache.get(key);
+  if (!value) {
+    value = scriptResourceCache.get(key, ttlMs, true);
+  }
+  if (!value || typeof value !== "object") return null;
+  return value;
+}
+
+function setCache(key, value, ttlMs) {
+  if (typeof scriptResourceCache === "undefined") return;
+  scriptResourceCache.set(key, value, ttlMs);
+}
+
+function toPositiveInt(value, fallback) {
+  const n = parseInt(String(value), 10);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return n;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function extractError(err) {
