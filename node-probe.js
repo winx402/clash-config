@@ -13,6 +13,7 @@ const $ = $substore;
  *   "timeout": "12000",
  *   "cacheHours": "24",
  *   "engine": "http-meta",
+ *   "mihomoForSurgeUnsupported": "true",
  *   "httpMetaUrl": "http://127.0.0.1:9876",
  *   "landingQueryUrl": "https://api.ip.sb/geoip",
  *   "youtubeQueryUrl": "https://www.youtube.com/premium"
@@ -31,6 +32,7 @@ const {
   cacheHours = "24",
   engine = "http-meta",
   allowNodeFallback = "false",
+  mihomoForSurgeUnsupported = "true",
   cleanupOnSkip = "true",
   httpMetaUrl = "http://127.0.0.1:9876",
   httpMetaProxyHost = "",
@@ -57,6 +59,7 @@ const DEFAULT_LANDING_QUERY_URL = "https://api.ip.sb/geoip";
 const DEFAULT_YOUTUBE_QUERY_URL = "https://www.youtube.com/premium";
 const LANDING_QUERY_URL = resolveLandingQueryUrl(landingQueryUrl, queryUrl);
 const YOUTUBE_QUERY_URL = resolveYoutubeQueryUrl(youtubeQueryUrl, queryUrl);
+const SURGE_SUPPORTED_CACHE = new WeakMap();
 
 async function operator(proxies = []) {
   const c = toPositiveInt(concurrency, 12);
@@ -70,6 +73,8 @@ async function operator(proxies = []) {
   const useCity = String(showCity) === "true";
   const retainFlag = String(keepFlag) !== "false";
   const enableNodeFallback = String(allowNodeFallback) === "true";
+  const useMihomoForUnsupported =
+    String(mihomoForSurgeUnsupported) !== "false";
   let mode = String(engine).toLowerCase();
   if (mode === "node" && !enableNodeFallback) {
     $.error("node-probe: engine=node 默认禁用，已跳过（避免本机出口误判）");
@@ -102,6 +107,20 @@ async function operator(proxies = []) {
       $.error("node-probe: allowNodeFallback=true，回退 engine=node，结果可能是本机出口");
       mode = "node";
     }
+  } else if (mode === "node" && useMihomoForUnsupported) {
+    const unsupportedCount = countSurgeUnsupportedProxies(proxies);
+    if (unsupportedCount > 0) {
+      try {
+        metaCtx = await startHttpMetaBatch(proxies, t);
+        $.info(
+          `node-probe: engine=node 检测到 ${unsupportedCount} 个 Surge 不支持协议，已启用 Mihomo 分流探测`
+        );
+      } catch (err) {
+        $.error(
+          `node-probe: Mihomo 分流探测初始化失败 (${httpMetaUrl}): ${extractError(err)}`
+        );
+      }
+    }
   }
 
   const queue = proxies.slice();
@@ -122,6 +141,7 @@ async function operator(proxies = []) {
             retainFlag,
             mode,
             metaCtx,
+            useMihomoForUnsupported,
           });
         }
       })()
@@ -144,20 +164,20 @@ async function probeOne(proxy, opts) {
     return;
   }
 
-  const node = buildNodeDescriptor(proxy);
+  const route = buildProbeRoute(proxy, opts);
 
   // Run landing check first.
   if (opts.doCheckLanding) {
-    await probeLandingOne(proxy, opts, node);
+    await probeLandingOne(proxy, opts, route);
   }
 
   // Run YouTube check in the same loop and honor availability from landing stage.
   if (opts.doCheckYoutube && isNodeAvailable(proxy)) {
-    await probeYoutubeOne(proxy, opts, node);
+    await probeYoutubeOne(proxy, opts, route);
   }
 }
 
-async function probeLandingOne(proxy, opts, node) {
+async function probeLandingOne(proxy, opts, route) {
   const cacheKey = getLandingCacheKey(proxy);
   const cached = getCache(cacheKey, opts.ttlMs);
   if (cached) {
@@ -167,7 +187,7 @@ async function probeLandingOne(proxy, opts, node) {
 
   let reachedByProxy = false;
   try {
-    const resp = await requestThroughProxy(proxy, opts, node, {
+    const resp = await requestThroughProxy(proxy, opts, route, {
       url: LANDING_QUERY_URL,
     });
     reachedByProxy = true;
@@ -202,7 +222,7 @@ async function probeLandingOne(proxy, opts, node) {
   }
 }
 
-async function probeYoutubeOne(proxy, opts, node) {
+async function probeYoutubeOne(proxy, opts, route) {
   const cacheKey = getYoutubeCacheKey(proxy);
   const cached = getCache(cacheKey, opts.ttlMs);
   if (cached) {
@@ -211,7 +231,7 @@ async function probeYoutubeOne(proxy, opts, node) {
   }
 
   try {
-    const resp = await requestThroughProxy(proxy, opts, node, {
+    const resp = await requestThroughProxy(proxy, opts, route, {
       url: YOUTUBE_QUERY_URL,
       headers: {
         "accept-language": acceptLanguage,
@@ -291,10 +311,11 @@ function applyYoutubeResult(proxy, result, opts) {
   }
 }
 
-async function requestThroughProxy(proxy, opts, node, req) {
+async function requestThroughProxy(proxy, opts, route, req) {
   const headers = req.headers || null;
 
-  if (opts.mode === "node") {
+  if (!route.useHttpMeta) {
+    const node = route.nodeDescriptor;
     if (!node) {
       throw new Error("NODE_DESCRIPTOR_EMPTY");
     }
@@ -434,8 +455,29 @@ function parseGeoResponse(body) {
   };
 }
 
-function buildNodeDescriptor(proxy) {
-  const candidates = ["ClashMeta", "Clash", "Loon", "Surge"];
+function buildProbeRoute(proxy, opts) {
+  let useHttpMeta = opts.mode !== "node";
+
+  if (
+    !useHttpMeta &&
+    opts.useMihomoForUnsupported &&
+    opts.metaCtx &&
+    !isSurgeSupportedProxy(proxy)
+  ) {
+    useHttpMeta = true;
+  }
+
+  const nodeDescriptor = useHttpMeta
+    ? ""
+    : buildNodeDescriptor(proxy, ["Surge", "Loon", "ClashMeta", "Clash"]);
+
+  return {
+    useHttpMeta,
+    nodeDescriptor,
+  };
+}
+
+function buildNodeDescriptor(proxy, candidates = ["ClashMeta", "Clash", "Loon", "Surge"]) {
   for (const target of candidates) {
     try {
       let node = ProxyUtils.produce([proxy], target);
@@ -450,6 +492,34 @@ function buildNodeDescriptor(proxy) {
     }
   }
   return "";
+}
+
+function isSurgeSupportedProxy(proxy) {
+  if (!proxy || typeof proxy !== "object") return false;
+  if (SURGE_SUPPORTED_CACHE.has(proxy)) {
+    return SURGE_SUPPORTED_CACHE.get(proxy);
+  }
+
+  let supported = false;
+  try {
+    const text = ProxyUtils.produce([proxy], "Surge");
+    supported = typeof text === "string" && text.trim().length > 0;
+  } catch (_) {
+    supported = false;
+  }
+
+  SURGE_SUPPORTED_CACHE.set(proxy, supported);
+  return supported;
+}
+
+function countSurgeUnsupportedProxies(proxies) {
+  let count = 0;
+  for (const proxy of proxies || []) {
+    if (!isSurgeSupportedProxy(proxy)) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 async function startHttpMetaBatch(proxies, timeoutMs) {
