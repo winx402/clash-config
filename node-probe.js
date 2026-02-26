@@ -79,12 +79,18 @@ async function operator(proxies = []) {
     ? countSurgeUnsupportedProxies(proxies)
     : 0;
   let mode = String(engine).toLowerCase();
-  if (mode === "node" && !enableNodeFallback) {
+  const blockNodeMode = mode === "node" && !enableNodeFallback;
+  if (blockNodeMode && unsupportedCount === 0) {
     $.error("node-probe: engine=node 默认禁用，已跳过（避免本机出口误判）");
     if (doRename && doCleanupOnSkip) {
       cleanupProbeTags(proxies);
     }
     return proxies;
+  }
+  if (blockNodeMode && unsupportedCount > 0) {
+    $.error(
+      "node-probe: engine=node 默认禁用，仅对 Surge 不支持协议尝试 Mihomo 探测"
+    );
   }
 
   if (!doCheckLanding && !doCheckYoutube) {
@@ -146,6 +152,7 @@ async function operator(proxies = []) {
             mode,
             metaCtx,
             useMihomoForUnsupported,
+            blockNodeMode,
           });
         }
       })()
@@ -169,6 +176,9 @@ async function probeOne(proxy, opts) {
   }
 
   const route = buildProbeRoute(proxy, opts);
+  if (route.skip) {
+    return;
+  }
 
   // Run landing check first.
   if (opts.doCheckLanding) {
@@ -470,6 +480,13 @@ function buildProbeRoute(proxy, opts) {
   ) {
     useHttpMeta = true;
   }
+  if (!useHttpMeta && opts.blockNodeMode) {
+    return {
+      useHttpMeta: false,
+      nodeDescriptor: "",
+      skip: true,
+    };
+  }
 
   const nodeDescriptor = useHttpMeta
     ? ""
@@ -478,6 +495,7 @@ function buildProbeRoute(proxy, opts) {
   return {
     useHttpMeta,
     nodeDescriptor,
+    skip: false,
   };
 }
 
