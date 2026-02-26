@@ -19,6 +19,8 @@ const $ = $substore;
  * }
  */
 
+const rawArgs = $arguments || {};
+
 const {
   checkLanding = "true",
   checkYoutube = "true",
@@ -37,16 +39,21 @@ const {
   showCity = "false",
   keepFlag = "true",
   failTag = "❌落地失败",
-  landingQueryUrl = "https://api.ip.sb/geoip",
-  youtubeQueryUrl = "https://www.youtube.com/premium",
+  landingQueryUrl = "",
+  youtubeQueryUrl = "",
+  queryUrl = "",
   acceptLanguage = "en",
   userAgent =
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-} = $arguments;
+} = rawArgs;
 
 const LANDING_CACHE_PREFIX = "landing-ip:";
 const YT_CACHE_PREFIX = "yt-premium:";
 const NODE_AVAILABLE_FIELD = "_node_available";
+const DEFAULT_LANDING_QUERY_URL = "https://api.ip.sb/geoip";
+const DEFAULT_YOUTUBE_QUERY_URL = "https://www.youtube.com/premium";
+const LANDING_QUERY_URL = resolveLandingQueryUrl(landingQueryUrl, queryUrl);
+const YOUTUBE_QUERY_URL = resolveYoutubeQueryUrl(youtubeQueryUrl, queryUrl);
 
 async function operator(proxies = []) {
   const c = toPositiveInt(concurrency, 12);
@@ -58,7 +65,7 @@ async function operator(proxies = []) {
   const useIsp = String(showIsp) !== "false";
   const useCity = String(showCity) === "true";
   const retainFlag = String(keepFlag) !== "false";
-  const mode = String(engine).toLowerCase();
+  let mode = String(engine).toLowerCase();
 
   if (!doCheckLanding && !doCheckYoutube) {
     $.info("node-probe: both checks disabled");
@@ -67,7 +74,14 @@ async function operator(proxies = []) {
 
   let metaCtx = null;
   if (mode !== "node") {
-    metaCtx = await startHttpMetaBatch(proxies, t);
+    try {
+      metaCtx = await startHttpMetaBatch(proxies, t);
+    } catch (err) {
+      $.error(
+        `node-probe http-meta unavailable (${httpMetaUrl}): ${extractError(err)}; fallback to engine=node`
+      );
+      mode = "node";
+    }
   }
 
   const queue = proxies.slice();
@@ -98,7 +112,7 @@ async function operator(proxies = []) {
     await Promise.all(workers);
   } finally {
     if (metaCtx && metaCtx.pid) {
-      await tryStopMeta(metaCtx.pid);
+      await tryStopMeta(metaCtx);
     }
   }
 
@@ -134,7 +148,7 @@ async function probeLandingOne(proxy, opts, node) {
   let reachedByProxy = false;
   try {
     const resp = await requestThroughProxy(proxy, opts, node, {
-      url: landingQueryUrl,
+      url: LANDING_QUERY_URL,
     });
     reachedByProxy = true;
     // Reachable proxy path even if geo payload is malformed.
@@ -178,7 +192,7 @@ async function probeYoutubeOne(proxy, opts, node) {
 
   try {
     const resp = await requestThroughProxy(proxy, opts, node, {
-      url: youtubeQueryUrl,
+      url: YOUTUBE_QUERY_URL,
       headers: {
         "accept-language": acceptLanguage,
         "user-agent": userAgent,
@@ -258,18 +272,21 @@ function applyYoutubeResult(proxy, result, opts) {
 }
 
 async function requestThroughProxy(proxy, opts, node, req) {
-  const headers = req.headers || undefined;
+  const headers = req.headers || null;
 
   if (opts.mode === "node") {
     if (!node) {
       throw new Error("NODE_DESCRIPTOR_EMPTY");
     }
-    return $.http.get({
+    const payload = {
       url: req.url,
       timeout: opts.timeout,
       node,
-      headers,
-    });
+    };
+    if (headers) {
+      payload.headers = headers;
+    }
+    return $.http.get(payload);
   }
 
   return requestViaHttpMeta(proxy, opts, req.url, headers);
@@ -303,12 +320,15 @@ async function requestViaHttpMeta(proxy, opts, url, headers) {
   for (let i = 0; i < retries; i++) {
     for (const p of proxyCandidates) {
       try {
-        return await $.http.get({
+        const payload = {
           url,
           timeout: opts.timeout,
           proxy: p,
-          headers,
-        });
+        };
+        if (headers) {
+          payload.headers = headers;
+        }
+        return await $.http.get(payload);
       } catch (err) {
         lastErr = err;
       }
@@ -429,31 +449,62 @@ async function startHttpMetaBatch(proxies, timeoutMs) {
     throw new Error(`节点转换失败: ${bad} 个节点无法转换为 ClashMeta`);
   }
 
-  const started = await $.http.post({
-    url: `${base}/start`,
-    timeout: timeoutMs,
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      timeout: toPositiveInt(probeTimeoutMs, 45000),
-      proxies: normalized,
-    }),
-  });
+  const candidates = getHttpMetaCandidates(base);
+  let lastErr = null;
+  for (const candidate of candidates) {
+    try {
+      const started = await $.http.post({
+        url: `${candidate}/start`,
+        timeout: timeoutMs,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          timeout: toPositiveInt(probeTimeoutMs, 45000),
+          proxies: normalized,
+        }),
+      });
 
-  const payload = JSON.parse(started.body || "{}");
-  const ports = Array.isArray(payload.ports) ? payload.ports : [];
-  if (!ports.length) {
-    throw new Error(`http-meta 启动失败: ${started.body || "无可用端口"}`);
+      const payload = JSON.parse(started.body || "{}");
+      const ports = Array.isArray(payload.ports) ? payload.ports : [];
+      if (!ports.length) {
+        throw new Error(`http-meta 启动失败: ${started.body || "无可用端口"}`);
+      }
+
+      return {
+        pid: payload.pid,
+        ports,
+        proxies,
+        base: candidate,
+      };
+    } catch (err) {
+      lastErr = err;
+    }
   }
 
-  return {
-    pid: payload.pid,
-    ports,
-    proxies,
-  };
+  throw lastErr || new Error("http-meta 启动失败");
 }
 
-async function tryStopMeta(pid) {
-  const base = String(httpMetaUrl || "").replace(/\/+$/, "");
+function getHttpMetaCandidates(base) {
+  const out = [base];
+  try {
+    const u = new URL(base);
+    if (u.hostname === "127.0.0.1" || u.hostname === "localhost") {
+      u.hostname = "host.docker.internal";
+      out.push(String(u).replace(/\/+$/, ""));
+    }
+  } catch (_) {
+    // ignore
+  }
+  return Array.from(new Set(out));
+}
+
+async function tryStopMeta(metaCtxOrPid) {
+  if (!metaCtxOrPid) return;
+  const pid =
+    typeof metaCtxOrPid === "object" ? metaCtxOrPid.pid : metaCtxOrPid;
+  const base =
+    typeof metaCtxOrPid === "object" && metaCtxOrPid.base
+      ? String(metaCtxOrPid.base).replace(/\/+$/, "")
+      : String(httpMetaUrl || "").replace(/\/+$/, "");
   if (!base || !pid) return;
 
   try {
@@ -548,6 +599,31 @@ function getLandingCacheKey(proxy) {
 
 function getYoutubeCacheKey(proxy) {
   return `${YT_CACHE_PREFIX}${proxy.server}:${proxy.port}:${proxy.type || ""}`;
+}
+
+function resolveLandingQueryUrl(landingUrl, legacyUrl) {
+  if (isValidUrlLike(landingUrl)) return String(landingUrl).trim();
+  if (isValidUrlLike(legacyUrl) && !isYoutubeUrl(legacyUrl)) {
+    return String(legacyUrl).trim();
+  }
+  return DEFAULT_LANDING_QUERY_URL;
+}
+
+function resolveYoutubeQueryUrl(youtubeUrl, legacyUrl) {
+  if (isValidUrlLike(youtubeUrl)) return String(youtubeUrl).trim();
+  if (isValidUrlLike(legacyUrl) && isYoutubeUrl(legacyUrl)) {
+    return String(legacyUrl).trim();
+  }
+  return DEFAULT_YOUTUBE_QUERY_URL;
+}
+
+function isYoutubeUrl(url) {
+  return /youtube\.com|youtu\.be/i.test(String(url || ""));
+}
+
+function isValidUrlLike(url) {
+  const s = String(url || "").trim();
+  return /^https?:\/\//i.test(s);
 }
 
 function getCache(key, ttlMs) {

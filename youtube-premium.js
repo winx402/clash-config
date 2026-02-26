@@ -42,11 +42,18 @@ async function operator(proxies = []) {
   const t = toPositiveInt(timeout, 12000);
   const ttlMs = Math.max(1, toPositiveInt(cacheHours, 24)) * 3600 * 1000;
   const doRename = String(rename) !== "false";
-  const mode = String(engine).toLowerCase();
+  let mode = String(engine).toLowerCase();
 
   let metaCtx = null;
   if (mode !== "node") {
-    metaCtx = await startHttpMetaBatch(proxies, t);
+    try {
+      metaCtx = await startHttpMetaBatch(proxies, t);
+    } catch (err) {
+      $.error(
+        `yt-premium http-meta unavailable (${httpMetaUrl}): ${extractError(err)}; fallback to engine=node`
+      );
+      mode = "node";
+    }
   }
 
   const queue = proxies.slice();
@@ -72,7 +79,7 @@ async function operator(proxies = []) {
     await Promise.all(workers);
   } finally {
     if (metaCtx && metaCtx.pid) {
-      await tryStopMeta(metaCtx.pid);
+      await tryStopMeta(metaCtx);
     }
   }
 
@@ -256,31 +263,62 @@ async function startHttpMetaBatch(proxies, timeoutMs) {
     throw new Error(`PROXY_CONVERT_FAILED: ${bad}`);
   }
 
-  const started = await $.http.post({
-    url: `${base}/start`,
-    timeout: timeoutMs,
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      timeout: toPositiveInt(probeTimeoutMs, 45000),
-      proxies: normalized,
-    }),
-  });
+  const candidates = getHttpMetaCandidates(base);
+  let lastErr = null;
+  for (const candidate of candidates) {
+    try {
+      const started = await $.http.post({
+        url: `${candidate}/start`,
+        timeout: timeoutMs,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          timeout: toPositiveInt(probeTimeoutMs, 45000),
+          proxies: normalized,
+        }),
+      });
 
-  const payload = JSON.parse(started.body || "{}");
-  const ports = Array.isArray(payload.ports) ? payload.ports : [];
-  if (!ports.length) {
-    throw new Error(`HTTP_META_START_FAILED: ${started.body || "NO_PORTS"}`);
+      const payload = JSON.parse(started.body || "{}");
+      const ports = Array.isArray(payload.ports) ? payload.ports : [];
+      if (!ports.length) {
+        throw new Error(`HTTP_META_START_FAILED: ${started.body || "NO_PORTS"}`);
+      }
+
+      return {
+        pid: payload.pid,
+        ports,
+        proxies,
+        base: candidate,
+      };
+    } catch (err) {
+      lastErr = err;
+    }
   }
 
-  return {
-    pid: payload.pid,
-    ports,
-    proxies,
-  };
+  throw lastErr || new Error("HTTP_META_START_FAILED");
 }
 
-async function tryStopMeta(pid) {
-  const base = String(httpMetaUrl || "").replace(/\/+$/, "");
+function getHttpMetaCandidates(base) {
+  const out = [base];
+  try {
+    const u = new URL(base);
+    if (u.hostname === "127.0.0.1" || u.hostname === "localhost") {
+      u.hostname = "host.docker.internal";
+      out.push(String(u).replace(/\/+$/, ""));
+    }
+  } catch (_) {
+    // ignore
+  }
+  return Array.from(new Set(out));
+}
+
+async function tryStopMeta(metaCtxOrPid) {
+  if (!metaCtxOrPid) return;
+  const pid =
+    typeof metaCtxOrPid === "object" ? metaCtxOrPid.pid : metaCtxOrPid;
+  const base =
+    typeof metaCtxOrPid === "object" && metaCtxOrPid.base
+      ? String(metaCtxOrPid.base).replace(/\/+$/, "")
+      : String(httpMetaUrl || "").replace(/\/+$/, "");
   if (!base || !pid) return;
 
   try {
