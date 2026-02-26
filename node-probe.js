@@ -75,6 +75,9 @@ async function operator(proxies = []) {
   const enableNodeFallback = String(allowNodeFallback) === "true";
   const useMihomoForUnsupported =
     String(mihomoForSurgeUnsupported) !== "false";
+  const unsupportedCount = useMihomoForUnsupported
+    ? countSurgeUnsupportedProxies(proxies)
+    : 0;
   let mode = String(engine).toLowerCase();
   if (mode === "node" && !enableNodeFallback) {
     $.error("node-probe: engine=node 默认禁用，已跳过（避免本机出口误判）");
@@ -107,19 +110,20 @@ async function operator(proxies = []) {
       $.error("node-probe: allowNodeFallback=true，回退 engine=node，结果可能是本机出口");
       mode = "node";
     }
-  } else if (mode === "node" && useMihomoForUnsupported) {
-    const unsupportedCount = countSurgeUnsupportedProxies(proxies);
-    if (unsupportedCount > 0) {
-      try {
-        metaCtx = await startHttpMetaBatch(proxies, t);
-        $.info(
-          `node-probe: engine=node 检测到 ${unsupportedCount} 个 Surge 不支持协议，已启用 Mihomo 分流探测`
-        );
-      } catch (err) {
-        $.error(
-          `node-probe: Mihomo 分流探测初始化失败 (${httpMetaUrl}): ${extractError(err)}`
-        );
-      }
+  }
+
+  // Independent from engine mode:
+  // if some proxies are not Surge-compatible, try enabling Mihomo (http-meta) route for them.
+  if (!metaCtx && unsupportedCount > 0) {
+    try {
+      metaCtx = await startHttpMetaBatch(proxies, t);
+      $.info(
+        `node-probe: 检测到 ${unsupportedCount} 个 Surge 不支持协议，已启用 Mihomo 分流探测`
+      );
+    } catch (err) {
+      $.error(
+        `node-probe: Mihomo 分流探测初始化失败 (${httpMetaUrl}): ${extractError(err)}`
+      );
     }
   }
 
