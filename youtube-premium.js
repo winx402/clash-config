@@ -23,7 +23,10 @@ const {
   timeout = "12000",
   cacheHours = "24",
   engine = "http-meta",
+  allowNodeFallback = "false",
+  cleanupOnSkip = "true",
   httpMetaUrl = "http://127.0.0.1:9876",
+  httpMetaProxyHost = "",
   probeTimeoutMs = "45000",
   startupDelayMs = "250",
   connectRetries = "8",
@@ -42,7 +45,16 @@ async function operator(proxies = []) {
   const t = toPositiveInt(timeout, 12000);
   const ttlMs = Math.max(1, toPositiveInt(cacheHours, 24)) * 3600 * 1000;
   const doRename = String(rename) !== "false";
+  const doCleanupOnSkip = String(cleanupOnSkip) !== "false";
+  const enableNodeFallback = String(allowNodeFallback) === "true";
   let mode = String(engine).toLowerCase();
+  if (mode === "node" && !enableNodeFallback) {
+    $.error("yt-premium: engine=node 默认禁用，已跳过（避免本机出口误判）");
+    if (doRename && doCleanupOnSkip) {
+      cleanupYtTags(proxies);
+    }
+    return proxies;
+  }
 
   let metaCtx = null;
   if (mode !== "node") {
@@ -50,8 +62,16 @@ async function operator(proxies = []) {
       metaCtx = await startHttpMetaBatch(proxies, t);
     } catch (err) {
       $.error(
-        `yt-premium http-meta unavailable (${httpMetaUrl}): ${extractError(err)}; fallback to engine=node`
+        `yt-premium http-meta unavailable (${httpMetaUrl}): ${extractError(err)}`
       );
+      if (!enableNodeFallback) {
+        $.error("yt-premium: 未启用 allowNodeFallback，已跳过探测");
+        if (doRename && doCleanupOnSkip) {
+          cleanupYtTags(proxies);
+        }
+        return proxies;
+      }
+      $.error("yt-premium: allowNodeFallback=true，回退 engine=node，结果可能是本机出口");
       mode = "node";
     }
   }
@@ -169,7 +189,7 @@ function parseYoutubePremium(body) {
 }
 
 function buildNodeDescriptor(proxy) {
-  const candidates = ["Surge", "Loon", "ClashMeta", "Clash"];
+  const candidates = ["ClashMeta", "Clash", "Loon", "Surge"];
   for (const target of candidates) {
     try {
       let node = ProxyUtils.produce([proxy], target);
@@ -222,12 +242,7 @@ async function queryYoutubeViaHttpMeta(proxy, opts, headers) {
   const delay = toPositiveInt(startupDelayMs, 250);
   const retries = toPositiveInt(connectRetries, 8);
   const step = toPositiveInt(retryIntervalMs, 180);
-  const proxyCandidates = [
-    `socks5://127.0.0.1:${proxyPort}`,
-    `socks5://localhost:${proxyPort}`,
-    `http://127.0.0.1:${proxyPort}`,
-    `http://localhost:${proxyPort}`,
-  ];
+  const proxyCandidates = getHttpMetaProxyCandidates(proxyPort, ctx.base);
 
   let lastErr = null;
   await sleep(delay);
@@ -381,6 +396,38 @@ function sanitizeProxy(proxy) {
     out[key] = proxy[key];
   }
   return out;
+}
+
+function getHttpMetaProxyCandidates(proxyPort, baseUrl) {
+  const hosts = [];
+  const overrideHost = String(httpMetaProxyHost || "").trim();
+  if (overrideHost) {
+    hosts.push(overrideHost);
+  }
+  try {
+    const u = new URL(String(baseUrl || ""));
+    if (u.hostname) {
+      hosts.push(u.hostname);
+    }
+  } catch (_) {
+    // ignore
+  }
+  hosts.push("127.0.0.1", "localhost");
+  const uniqHosts = Array.from(new Set(hosts.filter(Boolean)));
+  const out = [];
+  for (const h of uniqHosts) {
+    out.push(`socks5://${h}:${proxyPort}`);
+    out.push(`http://${h}:${proxyPort}`);
+  }
+  return out;
+}
+
+function cleanupYtTags(proxies) {
+  if (!Array.isArray(proxies)) return;
+  for (const proxy of proxies) {
+    if (!proxy || typeof proxy !== "object") continue;
+    proxy.name = removeYtTag(proxy.name || "");
+  }
 }
 
 function getCacheKey(proxy) {

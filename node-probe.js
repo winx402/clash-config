@@ -30,7 +30,10 @@ const {
   timeout = "12000",
   cacheHours = "24",
   engine = "http-meta",
+  allowNodeFallback = "false",
+  cleanupOnSkip = "true",
   httpMetaUrl = "http://127.0.0.1:9876",
+  httpMetaProxyHost = "",
   probeTimeoutMs = "45000",
   startupDelayMs = "250",
   connectRetries = "8",
@@ -60,12 +63,21 @@ async function operator(proxies = []) {
   const t = toPositiveInt(timeout, 12000);
   const ttlMs = Math.max(1, toPositiveInt(cacheHours, 24)) * 3600 * 1000;
   const doRename = String(rename) !== "false";
+  const doCleanupOnSkip = String(cleanupOnSkip) !== "false";
   const doCheckLanding = String(checkLanding) !== "false";
   const doCheckYoutube = String(checkYoutube) !== "false";
   const useIsp = String(showIsp) !== "false";
   const useCity = String(showCity) === "true";
   const retainFlag = String(keepFlag) !== "false";
+  const enableNodeFallback = String(allowNodeFallback) === "true";
   let mode = String(engine).toLowerCase();
+  if (mode === "node" && !enableNodeFallback) {
+    $.error("node-probe: engine=node 默认禁用，已跳过（避免本机出口误判）");
+    if (doRename && doCleanupOnSkip) {
+      cleanupProbeTags(proxies);
+    }
+    return proxies;
+  }
 
   if (!doCheckLanding && !doCheckYoutube) {
     $.info("node-probe: both checks disabled");
@@ -78,8 +90,16 @@ async function operator(proxies = []) {
       metaCtx = await startHttpMetaBatch(proxies, t);
     } catch (err) {
       $.error(
-        `node-probe http-meta unavailable (${httpMetaUrl}): ${extractError(err)}; fallback to engine=node`
+        `node-probe http-meta unavailable (${httpMetaUrl}): ${extractError(err)}`
       );
+      if (!enableNodeFallback) {
+        $.error("node-probe: 未启用 allowNodeFallback，已跳过探测");
+        if (doRename && doCleanupOnSkip) {
+          cleanupProbeTags(proxies);
+        }
+        return proxies;
+      }
+      $.error("node-probe: allowNodeFallback=true，回退 engine=node，结果可能是本机出口");
       mode = "node";
     }
   }
@@ -307,12 +327,7 @@ async function requestViaHttpMeta(proxy, opts, url, headers) {
   const delay = toPositiveInt(startupDelayMs, 250);
   const retries = toPositiveInt(connectRetries, 8);
   const step = toPositiveInt(retryIntervalMs, 180);
-  const proxyCandidates = [
-    `socks5://127.0.0.1:${proxyPort}`,
-    `socks5://localhost:${proxyPort}`,
-    `http://127.0.0.1:${proxyPort}`,
-    `http://localhost:${proxyPort}`,
-  ];
+  const proxyCandidates = getHttpMetaProxyCandidates(proxyPort, ctx.base);
 
   let lastErr = null;
   await sleep(delay);
@@ -420,7 +435,7 @@ function parseGeoResponse(body) {
 }
 
 function buildNodeDescriptor(proxy) {
-  const candidates = ["Surge", "Loon", "ClashMeta", "Clash"];
+  const candidates = ["ClashMeta", "Clash", "Loon", "Surge"];
   for (const target of candidates) {
     try {
       let node = ProxyUtils.produce([proxy], target);
@@ -615,6 +630,38 @@ function resolveYoutubeQueryUrl(youtubeUrl, legacyUrl) {
     return String(legacyUrl).trim();
   }
   return DEFAULT_YOUTUBE_QUERY_URL;
+}
+
+function cleanupProbeTags(proxies) {
+  if (!Array.isArray(proxies)) return;
+  for (const proxy of proxies) {
+    if (!proxy || typeof proxy !== "object") continue;
+    proxy.name = removeYtTag(removeLandingTag(proxy.name || ""));
+  }
+}
+
+function getHttpMetaProxyCandidates(proxyPort, baseUrl) {
+  const hosts = [];
+  const overrideHost = String(httpMetaProxyHost || "").trim();
+  if (overrideHost) {
+    hosts.push(overrideHost);
+  }
+  try {
+    const u = new URL(String(baseUrl || ""));
+    if (u.hostname) {
+      hosts.push(u.hostname);
+    }
+  } catch (_) {
+    // ignore
+  }
+  hosts.push("127.0.0.1", "localhost");
+  const uniqHosts = Array.from(new Set(hosts.filter(Boolean)));
+  const out = [];
+  for (const h of uniqHosts) {
+    out.push(`socks5://${h}:${proxyPort}`);
+    out.push(`http://${h}:${proxyPort}`);
+  }
+  return out;
 }
 
 function isYoutubeUrl(url) {
