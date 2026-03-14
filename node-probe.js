@@ -693,8 +693,9 @@ function removeYtTag(name) {
 
 async function buildLandingFailureName(proxy) {
   const cleanName = removeLandingTag(proxy && proxy.name);
-  const flaggedName = await tryApplyBuiltinFlagName(proxy, cleanName);
-  const baseName = flaggedName || cleanName;
+  const existingFlag = extractLeadingFlag(cleanName);
+  const flaggedName = existingFlag ? "" : await tryApplyBuiltinFlagName(proxy, cleanName);
+  const baseName = existingFlag ? cleanName : flaggedName || cleanName;
   if (!failTag) return baseName;
   return `${baseName} ${failTag}`.trim();
 }
