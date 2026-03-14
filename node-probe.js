@@ -228,8 +228,8 @@ async function probeLandingOne(proxy, opts, route) {
     proxy._landing_isp = "";
     proxy._landing_error = errorText;
 
-    if (opts.doRename && failTag) {
-      proxy.name = `${removeLandingTag(proxy.name)} ${failTag}`.trim();
+    if (opts.doRename) {
+      proxy.name = await buildLandingFailureName(proxy);
     }
 
     $.error(`landing-ip ${proxy.name}: ${proxy._landing_error}`);
@@ -691,6 +691,43 @@ function removeYtTag(name) {
     .trim();
 }
 
+async function buildLandingFailureName(proxy) {
+  const cleanName = removeLandingTag(proxy && proxy.name);
+  const flaggedName = await tryApplyBuiltinFlagName(proxy, cleanName);
+  const baseName = flaggedName || cleanName;
+  if (!failTag) return baseName;
+  return `${baseName} ${failTag}`.trim();
+}
+
+async function tryApplyBuiltinFlagName(proxy, name) {
+  if (!ProxyUtils || typeof ProxyUtils.process !== "function") {
+    return "";
+  }
+
+  try {
+    const processed = await ProxyUtils.process(
+      [{ ...sanitizeProxy(proxy), name }],
+      [{ type: "Flag Operator", args: { mode: "add", tw: "ws" } }],
+      "JSON"
+    );
+    const flaggedName =
+      Array.isArray(processed) &&
+      processed[0] &&
+      typeof processed[0].name === "string"
+        ? processed[0].name.trim()
+        : "";
+    if (!flaggedName || !hasFlagEmoji(flaggedName)) {
+      return "";
+    }
+    if (extractLeadingFlag(flaggedName) === "🏴‍☠️") {
+      return "";
+    }
+    return flaggedName;
+  } catch (_) {
+    return "";
+  }
+}
+
 function getFlagEmoji(countryCode) {
   const cc = safeUpper(countryCode);
   if (!/^[a-zA-Z]{2}$/.test(cc)) return "";
@@ -812,6 +849,19 @@ function safeUpper(value) {
   } catch (_) {
     return "";
   }
+}
+
+function hasFlagEmoji(name) {
+  return /[\uD83C][\uDDE6-\uDDFF][\uD83C][\uDDE6-\uDDFF]|🏴‍☠️|🏳️‍🌈/.test(
+    String(name || "")
+  );
+}
+
+function extractLeadingFlag(name) {
+  const matched = String(name || "").match(
+    /^(?:[\uD83C][\uDDE6-\uDDFF][\uD83C][\uDDE6-\uDDFF]|🏴‍☠️|🏳️‍🌈)/
+  );
+  return matched ? matched[0] : "";
 }
 
 function isNodeAvailable(proxy) {
