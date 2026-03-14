@@ -1,0 +1,10 @@
+# OpenAI / ChatGPT / Gemini domains
+# Compatible with common Clash/Mihomo/Surge domain rule imports.
+
+DOMAIN-SUFFIX,chatgpt.com
+DOMAIN-SUFFIX,openai.com
+DOMAIN-SUFFIX,oaistatic.com
+DOMAIN-SUFFIX,oaiusercontent.com
+DOMAIN,ai.google.dev
+DOMAIN,aistudio.google.com
+DOMAIN,generativelanguage.googleapis.com
