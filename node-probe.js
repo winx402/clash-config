@@ -60,6 +60,7 @@ const DEFAULT_YOUTUBE_QUERY_URL = "https://www.youtube.com/premium";
 const LANDING_QUERY_URL = resolveLandingQueryUrl(landingQueryUrl, queryUrl);
 const YOUTUBE_QUERY_URL = resolveYoutubeQueryUrl(youtubeQueryUrl, queryUrl);
 const SURGE_SUPPORTED_CACHE = new WeakMap();
+const FLAG_OPERATOR_TW_MODE = "ws";
 
 async function operator(proxies = []) {
   const c = toPositiveInt(concurrency, 12);
@@ -298,7 +299,7 @@ function applyLandingResult(proxy, result, opts) {
   }
 
   const landingText = `[落地 ${parts.join(" | ")}]`;
-  const cleanName = removeLandingTag(proxy.name);
+  const cleanName = removeNameFlags(removeLandingTag(proxy.name));
   if (String(position).toLowerCase() === "prefix") {
     proxy.name = `${landingText} ${cleanName}`.trim();
   } else {
@@ -691,11 +692,17 @@ function removeYtTag(name) {
     .trim();
 }
 
+function removeNameFlags(name) {
+  return String(name || "")
+    .replace(/(?:[\u{1F1E6}-\u{1F1FF}]{2}|🏴‍☠️)\s*/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 async function buildLandingFailureName(proxy) {
-  const cleanName = removeLandingTag(proxy && proxy.name);
-  const existingFlag = extractLeadingFlag(cleanName);
-  const flaggedName = existingFlag ? "" : await tryApplyBuiltinFlagName(proxy, cleanName);
-  const baseName = existingFlag ? cleanName : flaggedName || cleanName;
+  const cleanName = removeNameFlags(removeLandingTag(proxy && proxy.name));
+  const flaggedName = await tryApplyBuiltinFlagName(proxy, cleanName);
+  const baseName = flaggedName || cleanName;
   if (!failTag) return baseName;
   return `${baseName} ${failTag}`.trim();
 }
@@ -708,7 +715,7 @@ async function tryApplyBuiltinFlagName(proxy, name) {
   try {
     const processed = await ProxyUtils.process(
       [{ ...sanitizeProxy(proxy), name }],
-      [{ type: "Flag Operator", args: { mode: "add", tw: "ws" } }],
+      [{ type: "Flag Operator", args: { mode: "add", tw: FLAG_OPERATOR_TW_MODE } }],
       "JSON"
     );
     const flaggedName =
@@ -732,10 +739,15 @@ async function tryApplyBuiltinFlagName(proxy, name) {
 function getFlagEmoji(countryCode) {
   const cc = safeUpper(countryCode);
   if (!/^[a-zA-Z]{2}$/.test(cc)) return "";
+  if (cc === "TW") {
+    if (FLAG_OPERATOR_TW_MODE === "ws") return "🇼🇸";
+    if (FLAG_OPERATOR_TW_MODE === "tw") return "🇹🇼";
+    return "🇨🇳";
+  }
   const codePoints = cc
     .split("")
     .map((c) => 127397 + c.charCodeAt());
-  return String.fromCodePoint(...codePoints).replace(/🇹🇼/g, "🇼🇸");
+  return String.fromCodePoint(...codePoints);
 }
 
 function getLandingCacheKey(proxy) {
