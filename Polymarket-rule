@@ -1,2 +1,55 @@
+
+
+# Polymarket Rule Set
+# 用于 Surge 代理 Polymarket 相关域名
+# 更新时间: 2026-06-25
+
+# 主域名
+DOMAIN,polymarket.com
 DOMAIN-SUFFIX,polymarket.com
-DOMAIN-SUFFIX,polymarket.io
+
+# 镜像/备用域名
+DOMAIN,polymarket.xyz
+DOMAIN-SUFFIX,polymarket.xyz
+
+DOMAIN,poly.market
+DOMAIN-SUFFIX,poly.market
+
+DOMAIN,polymarkets.io
+DOMAIN-SUFFIX,polymarkets.io
+
+DOMAIN,polymarket.app
+DOMAIN-SUFFIX,polymarket.app
+
+DOMAIN,polymarketsafe.com
+DOMAIN-SUFFIX,polymarketsafe.com
+
+DOMAIN,tradepolymarket.com
+DOMAIN-SUFFIX,tradepolymarket.com
+
+DOMAIN,pmkt.io
+DOMAIN-SUFFIX,pmkt.io
+
+# 地区特定镜像 - 俄罗斯及全球备用
+DOMAIN,poly-russia.com
+DOMAIN-SUFFIX,poly-russia.com
+
+DOMAIN,polymarketru.net
+DOMAIN-SUFFIX,polymarketru.net
+
+DOMAIN,pmktsafe.ru
+DOMAIN-SUFFIX,pmktsafe.ru
+
+DOMAIN,polyalt.link
+DOMAIN-SUFFIX,polyalt.link
+
+DOMAIN,pm-access.ru
+DOMAIN-SUFFIX,pm-access.ru
+
+DOMAIN,polymarketproxy.com
+DOMAIN-SUFFIX,polymarketproxy.com
+
+# CDN 和关联域名（可选）
+DOMAIN-SUFFIX,cdn.polymarket.com
+DOMAIN-SUFFIX,api.polymarket.com
+DOMAIN-SUFFIX,clob.polymarket.com
