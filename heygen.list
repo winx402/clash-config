@@ -1,0 +1,8 @@
+# HeyGen Rule Set
+# 用于 Clash 代理 HeyGen 相关域名
+# 更新时间: 2026-07-01
+# 说明: 使用 DOMAIN-SUFFIX 已包含所有子域名
+
+payload:
+  - DOMAIN-SUFFIX,heygen.com
+  - DOMAIN-SUFFIX,heygen.ai
