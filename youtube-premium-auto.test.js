@@ -1,7 +1,23 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const core = require("./youtube-premium-auto-surge.js");
+
+test("declares two Surge module arguments with compatible placeholders", () => {
+  const moduleText = fs.readFileSync(
+    path.join(__dirname, "youtube-premium-auto.sgmodule"),
+    "utf8"
+  );
+  assert.match(
+    moduleText,
+    /^#!arguments=TARGET_GROUP:Youtube,REGION_ORDER:"sg,jp,us,other"$/m
+  );
+  assert.match(moduleText, /TARGET_GROUP=\{\{\{TARGET_GROUP\}\}\}/);
+  assert.match(moduleText, /REGION_ORDER=\{\{\{REGION_ORDER\}\}\}/);
+  assert.doesNotMatch(moduleText, /%(?:TARGET_GROUP|REGION_ORDER)%/);
+});
 
 function node(name, enabled = true) {
   return { name, isGroup: false, enabled };

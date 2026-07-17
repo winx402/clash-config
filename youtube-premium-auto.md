@@ -10,12 +10,19 @@ https://raw.githubusercontent.com/winx402/clash-config/main/youtube-premium-auto
 
 模块只有两个参数：
 
+```text
+TARGET_GROUP: Youtube
+REGION_ORDER: sg,jp,us,other
+```
+
 - `TARGET_GROUP`：顶层策略组的精确名称，默认 `Youtube`。
 - `REGION_ORDER`：YouTube 响应国家代码的优先级，默认 `sg,jp,us,other`。
 
 地区代码不区分大小写，支持任意两位国家代码。`other` 表示没有单独列出的其他国家。模块不会通过节点名或策略组名判断地区。
 
 `TARGET_GROUP` 必须是 `select` 策略组。如果找不到该组，或该组是 `fallback`、`smart`、`url-test`、`load-balance`、`subnet` 等自动类型，脚本会通知兼容性错误并终止，不修改策略选择。
+
+仅完成 URL 安装不会自动启用模块。安装后需要在 Surge 的“模块”页面勾选“启用”并应用；启用成功后，“脚本”页面会出现“立即检测 YouTube Premium”。
 
 ## 工作方式
 
