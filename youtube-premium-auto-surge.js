@@ -105,7 +105,12 @@
     if (/consent\.youtube\.com|Before you continue to YouTube/i.test(text)) {
       return unknown("CONSENT_REQUIRED");
     }
-    if (/unusual traffic from your computer network|recaptcha|challenge-form/i.test(text)) {
+    if (
+      /unusual traffic from your computer network/i.test(text) ||
+      /<form[^>]+action=["'][^"']*\/sorry\/index/i.test(text) ||
+      /(?:id|name)=["']captcha-form["']/i.test(text) ||
+      /<title[^>]*>\s*Sorry(?:\.\.\.)?\s*<\/title>/i.test(text)
+    ) {
       return unknown("GOOGLE_CHALLENGE");
     }
 

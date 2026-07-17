@@ -65,6 +65,18 @@ test("classifies supported, unavailable, consent, and malformed Premium pages", 
   assert.equal(core.parsePremiumResponse(429, supported("SG")).reason, "HTTP_429");
 });
 
+test("does not mistake normal YouTube challenge assets for a challenge page", () => {
+  const normalPage = `${supported("JP")} recaptcha challenge-form`;
+  assert.equal(core.parsePremiumResponse(200, normalPage).status, "supported");
+  assert.equal(
+    core.parsePremiumResponse(
+      200,
+      '<title>Sorry...</title><form id="captcha-form" action="/sorry/index">'
+    ).reason,
+    "GOOGLE_CHALLENGE"
+  );
+});
+
 test("ranks country before elapsed time and uses node order as final tie breaker", () => {
   const winner = core.chooseCandidate(
     [
