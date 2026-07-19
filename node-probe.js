@@ -11,7 +11,7 @@ const $ = $substore;
  *   "position": "suffix",
  *   "concurrency": "12",
  *   "timeout": "12000",
- *   "cacheHours": "24",
+ *   "cacheHours": "6",
  *   "engine": "http-meta",
  *   "mihomoForSurgeUnsupported": "true",
  *   "httpMetaUrl": "http://127.0.0.1:9876",
@@ -29,7 +29,7 @@ const {
   position = "suffix",
   concurrency = "12",
   timeout = "12000",
-  cacheHours = "24",
+  cacheHours = "6",
   engine = "http-meta",
   allowNodeFallback = "false",
   mihomoForSurgeUnsupported = "true",
@@ -52,8 +52,10 @@ const {
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
 } = rawArgs;
 
-const LANDING_CACHE_PREFIX = "landing-ip:";
-const YT_CACHE_PREFIX = "yt-premium:";
+const LANDING_CACHE_PREFIX = "node-probe:landing:";
+const YT_CACHE_PREFIX = "node-probe:yt-premium:";
+const LANDING_FAILURE_PREFIX = "node-probe:landing-failure:";
+const LANDING_FAILURE_THRESHOLD = 3;
 const NODE_AVAILABLE_FIELD = "_node_available";
 const DEFAULT_LANDING_QUERY_URL = "https://api.ip.sb/geoip";
 const DEFAULT_YOUTUBE_QUERY_URL = "https://www.youtube.com/premium";
@@ -65,7 +67,7 @@ const FLAG_OPERATOR_TW_MODE = "ws";
 async function operator(proxies = []) {
   const c = toPositiveInt(concurrency, 12);
   const t = toPositiveInt(timeout, 12000);
-  const ttlMs = Math.max(1, toPositiveInt(cacheHours, 24)) * 3600 * 1000;
+  const ttlMs = Math.max(1, toPositiveInt(cacheHours, 6)) * 3600 * 1000;
   const doRename = String(rename) !== "false";
   const doCleanupOnSkip = String(cleanupOnSkip) !== "false";
   const doCheckLanding = String(checkLanding) !== "false";
@@ -196,17 +198,20 @@ async function probeLandingOne(proxy, opts, route) {
   const cacheKey = getLandingCacheKey(proxy);
   const cached = getCache(cacheKey, opts.ttlMs);
   if (cached) {
-    applyLandingResult(proxy, cached, opts);
+    // Cached geo metadata is not a live connectivity signal.
+    applyLandingResult(proxy, cached, opts, false);
     return;
   }
 
   let reachedByProxy = false;
+  let failureState = { count: 0, quarantined: false };
   try {
     const resp = await requestThroughProxy(proxy, opts, route, {
       url: LANDING_QUERY_URL,
     });
     reachedByProxy = true;
     // Reachable proxy path even if geo payload is malformed.
+    resetLandingFailures(proxy, opts.ttlMs);
     setNodeAvailable(proxy, true);
 
     const result = parseGeoResponse(resp.body);
@@ -215,11 +220,14 @@ async function probeLandingOne(proxy, opts, route) {
     }
 
     setCache(cacheKey, result, opts.ttlMs);
-    applyLandingResult(proxy, result, opts);
+    applyLandingResult(proxy, result, opts, true);
   } catch (err) {
     const errorText = extractError(err);
     if (!reachedByProxy) {
-      setNodeAvailable(proxy, false);
+      failureState = recordLandingFailure(proxy, opts.ttlMs);
+      if (failureState.quarantined) {
+        setNodeAvailable(proxy, false);
+      }
     }
 
     proxy._landing_ip = "";
@@ -228,12 +236,19 @@ async function probeLandingOne(proxy, opts, route) {
     proxy._landing_city = "";
     proxy._landing_isp = "";
     proxy._landing_error = errorText;
+    proxy._landing_failure_count = failureState.count;
+    proxy._landing_quarantined = failureState.quarantined;
 
     if (opts.doRename) {
-      proxy.name = await buildLandingFailureName(proxy);
+      proxy.name = failureState.quarantined
+        ? await buildLandingFailureName(proxy)
+        : removeLandingTag(proxy.name);
     }
 
-    $.error(`landing-ip ${proxy.name}: ${proxy._landing_error}`);
+    const failureText = reachedByProxy
+      ? "path-reachable"
+      : `consecutive=${failureState.count}/${LANDING_FAILURE_THRESHOLD}`;
+    $.error(`node-probe landing-failed ${proxy.name}: ${errorText} ${failureText}`);
   }
 }
 
@@ -269,8 +284,10 @@ async function probeYoutubeOne(proxy, opts, route) {
   }
 }
 
-function applyLandingResult(proxy, result, opts) {
-  setNodeAvailable(proxy, true);
+function applyLandingResult(proxy, result, opts, markAvailable = true) {
+  if (markAvailable) {
+    setNodeAvailable(proxy, true);
+  }
 
   proxy._landing_ip = result.ip || "";
   proxy._landing_country_code = result.countryCode || "";
@@ -751,11 +768,87 @@ function getFlagEmoji(countryCode) {
 }
 
 function getLandingCacheKey(proxy) {
-  return `${LANDING_CACHE_PREFIX}${proxy.server}:${proxy.port}:${proxy.type || ""}`;
+  return `${LANDING_CACHE_PREFIX}${getProxyIdentityKey(proxy)}`;
 }
 
 function getYoutubeCacheKey(proxy) {
-  return `${YT_CACHE_PREFIX}${proxy.server}:${proxy.port}:${proxy.type || ""}`;
+  return `${YT_CACHE_PREFIX}${getProxyIdentityKey(proxy)}`;
+}
+
+function getLandingFailureKey(proxy) {
+  return `${LANDING_FAILURE_PREFIX}${getProxyIdentityKey(proxy)}`;
+}
+
+function getProxyIdentityKey(proxy) {
+  const identity = {};
+  for (const key of Object.keys(proxy || {}).sort()) {
+    if (key === "name" || key.startsWith("_")) continue;
+    identity[key] = proxy[key];
+  }
+  const fingerprint = hashString(stableSerialize(identity));
+  return `${proxy.server || ""}:${proxy.port || ""}:${proxy.type || ""}:${fingerprint}`;
+}
+
+function stableSerialize(value) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableSerialize(entry)).join(",")}]`;
+  }
+  if (typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableSerialize(value[key])}`)
+      .join(",")}}`;
+  }
+  const encoded = JSON.stringify(value);
+  return encoded === undefined ? JSON.stringify(String(value)) : encoded;
+}
+
+function hashString(value) {
+  const text = String(value || "");
+  let h1 = 0xdeadbeef ^ text.length;
+  let h2 = 0x41c6ce57 ^ text.length;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 =
+    Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^
+    Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 =
+    Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^
+    Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return `${(h2 >>> 0).toString(16).padStart(8, "0")}${(h1 >>> 0)
+    .toString(16)
+    .padStart(8, "0")}`;
+}
+
+function recordLandingFailure(proxy, ttlMs) {
+  const key = getLandingFailureKey(proxy);
+  const previous = getCache(key, ttlMs);
+  const count = Math.min(
+    LANDING_FAILURE_THRESHOLD,
+    Math.max(0, Number(previous && previous.count) || 0) + 1
+  );
+  const state = {
+    count,
+    quarantined: count >= LANDING_FAILURE_THRESHOLD,
+    updatedAt: Date.now(),
+  };
+  setCache(key, state, ttlMs);
+  return state;
+}
+
+function resetLandingFailures(proxy, ttlMs) {
+  const state = {
+    count: 0,
+    quarantined: false,
+    updatedAt: Date.now(),
+  };
+  setCache(getLandingFailureKey(proxy), state, ttlMs);
+  proxy._landing_failure_count = 0;
+  proxy._landing_quarantined = false;
 }
 
 function resolveLandingQueryUrl(landingUrl, legacyUrl) {
