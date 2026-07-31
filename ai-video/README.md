@@ -6,7 +6,15 @@
 
 ## 使用方式
 
-以 Krea 为例，在 Surge 配置中指定自己的策略组：
+如需全部站点统一走名为 `proxy` 的策略，在 Surge 主配置的 `[Rule]` 段靠后位置手动加入以下规则：
+
+```ini
+RULE-SET,https://raw.githubusercontent.com/winx402/clash-config/main/ai-video/all.list,proxy
+```
+
+Surge 模块不能引用自定义策略组，只能使用内置策略，因此这里保留主配置规则，确保能准确指向 `proxy`。
+
+若只需要个别站点，仍可按下例分别引用并指定自己的策略组：
 
 ```ini
 RULE-SET,https://raw.githubusercontent.com/winx402/clash-config/main/ai-video/krea.list,AI视频

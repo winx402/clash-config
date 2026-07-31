@@ -1,9 +1,11 @@
 # Gemini / Veo
 # Surge domain rule-set; no policy column.
 # Updated: 2026-07-31
-# GitHub source: iamsparshgupta/shadowlens extension/src/domains.ts.
+# GitHub sources: iamsparshgupta/shadowlens extension/src/domains.ts and
+# Google Flow projects that use labs.google/fx.
 
 DOMAIN,gemini.google.com
+DOMAIN,labs.google
 DOMAIN,aistudio.google.com
 DOMAIN,ai.google.dev
 DOMAIN,generativelanguage.googleapis.com

@@ -1,6 +1,8 @@
 # Canva AI
 # Surge domain rule-set; no policy column.
 # Updated: 2026-07-31
-# GitHub source: iamsparshgupta/shadowlens extension/src/domains.ts
+# GitHub sources: iamsparshgupta/shadowlens extension/src/domains.ts and
+# canva-sdks organization (canva.dev developer documentation).
 
 DOMAIN-SUFFIX,canva.com
+DOMAIN-SUFFIX,canva.dev
