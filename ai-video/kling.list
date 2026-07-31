@@ -1,0 +1,10 @@
+# Kling AI (international)
+# Surge domain rule-set; no policy column.
+# Updated: 2026-07-31
+# GitHub source: v2fly/domain-list-community category-ai-cn.
+
+DOMAIN-SUFFIX,klingai.com
+DOMAIN-SUFFIX,kling-ai.com
+DOMAIN-SUFFIX,kling.ai
+DOMAIN-SUFFIX,kechuangai.com
+DOMAIN,static.yximgs.com

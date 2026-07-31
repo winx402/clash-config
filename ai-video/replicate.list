@@ -1,0 +1,9 @@
+# Replicate
+# Surge domain rule-set; no policy column.
+# Updated: 2026-07-31
+# GitHub source: replicate/replicate-python official SDK.
+
+DOMAIN-SUFFIX,replicate.com
+DOMAIN-SUFFIX,replicate.delivery
+DOMAIN-SUFFIX,replicate.ai
+DOMAIN-SUFFIX,replicate.net

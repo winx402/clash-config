@@ -1,0 +1,6 @@
+# Krea
+# Surge domain rule-set; no policy column.
+# Updated: 2026-07-31
+# GitHub sources: iamsparshgupta/shadowlens and krea-ai repositories.
+
+DOMAIN-SUFFIX,krea.ai

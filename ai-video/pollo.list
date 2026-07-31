@@ -1,0 +1,6 @@
+# Pollo AI
+# Surge domain rule-set; no policy column.
+# Updated: 2026-07-31
+# GitHub source: rekryt/iplist config/ai/pollo.ai.json.
+
+DOMAIN-SUFFIX,pollo.ai

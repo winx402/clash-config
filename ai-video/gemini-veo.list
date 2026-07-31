@@ -1,0 +1,13 @@
+# Gemini / Veo
+# Surge domain rule-set; no policy column.
+# Updated: 2026-07-31
+# GitHub source: iamsparshgupta/shadowlens extension/src/domains.ts.
+
+DOMAIN,gemini.google.com
+DOMAIN,aistudio.google.com
+DOMAIN,ai.google.dev
+DOMAIN,generativelanguage.googleapis.com
+DOMAIN,storage.googleapis.com
+DOMAIN,accounts.google.com
+DOMAIN-SUFFIX,gstatic.com
+DOMAIN-SUFFIX,googleusercontent.com

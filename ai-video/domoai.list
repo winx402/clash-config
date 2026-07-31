@@ -1,0 +1,7 @@
+# DomoAI
+# Surge domain rule-set; no policy column.
+# Updated: 2026-07-31
+# GitHub source: laylavish/uBlockOrigin-HUGE-AI-Blocklist
+
+DOMAIN-SUFFIX,domoai.app
+DOMAIN-SUFFIX,domoai.com

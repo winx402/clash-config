@@ -1,0 +1,8 @@
+# PixVerse
+# Surge domain rule-set; no policy column.
+# Updated: 2026-07-31
+# GitHub source: PixVerseAI/PixVerse-MCP official repository.
+
+DOMAIN-SUFFIX,pixverse.ai
+DOMAIN-SUFFIX,pixverseai.ai
+DOMAIN-SUFFIX,pixverseai.cn

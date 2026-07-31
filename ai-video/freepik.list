@@ -1,0 +1,9 @@
+# Freepik AI
+# Surge domain rule-set; no policy column.
+# Updated: 2026-07-31
+# GitHub source: laylavish/uBlockOrigin-HUGE-AI-Blocklist.
+
+DOMAIN-SUFFIX,freepik.com
+DOMAIN-SUFFIX,freepik.es
+DOMAIN-SUFFIX,cdnpk.net
+DOMAIN-SUFFIX,magnific.com
