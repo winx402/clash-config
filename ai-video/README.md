@@ -2,7 +2,7 @@
 
 更新时间：2026-07-31
 
-本目录按网站拆分，每个 `.list` 都是无策略列的 Surge 域名规则集，可单独订阅。规则同时沿用仓库现有 `DOMAIN` / `DOMAIN-SUFFIX` 写法；没有把统计、广告、客服等非必要第三方域名纳入。
+站点规则按网站拆分，每个 `.list` 都是无策略列的 Surge 域名规则集，可单独订阅。新增文件收纳在本目录；HeyGen 沿用仓库根目录已有的 `heygen.list`，避免维护两份相同规则。规则同时沿用仓库现有 `DOMAIN` / `DOMAIN-SUFFIX` 写法；没有把统计、广告、客服等非必要第三方域名纳入。
 
 ## 使用方式
 
@@ -11,6 +11,8 @@
 ```ini
 RULE-SET,https://raw.githubusercontent.com/winx402/clash-config/main/ai-video/krea.list,AI视频
 ```
+
+格式遵循 [Surge External Ruleset 官方规范](https://manual.nssurge.com/rule/ruleset.html)：远端文件为纯文本，每行是一条不带策略列的子规则；策略统一写在主配置的 `RULE-SET` 引用行中。
 
 建议按实际使用的网站逐个引用，不要无差别导入全部文件。`条件代理` 表示存在中国站、可直连入口或服务地区限制；代理只能改变网络出口，不能替代账号地区、手机号、支付方式或服务资格。
 
@@ -25,7 +27,7 @@ RULE-SET,https://raw.githubusercontent.com/winx402/clash-config/main/ai-video/kr
 | Leonardo.Ai | 建议代理 | `leonardo.list` | `leonardo.ai` |
 | Pika | 建议代理 | `pika.list` | `pika.art` |
 | Luma Dream Machine | 建议代理 | `luma.list` | `lumalabs.ai` |
-| HeyGen | 建议代理 | `heygen.list` | `heygen.com`, `heygen.ai` |
+| HeyGen | 建议代理 | `../heygen.list` | `heygen.com`, `heygen.ai` |
 | Synthesia | 建议代理 | `synthesia.list` | `synthesia.io` |
 | InVideo AI | 建议代理 | `invideo.list` | `invideo.io` |
 | Runway | 建议代理 | `runway.list` | `runwayml.com`, `runway.ml` |

@@ -1,7 +1,0 @@
-# HeyGen
-# Surge domain rule-set; no policy column.
-# Updated: 2026-07-31
-# GitHub source: iamsparshgupta/shadowlens extension/src/domains.ts.
-
-DOMAIN-SUFFIX,heygen.com
-DOMAIN-SUFFIX,heygen.ai
