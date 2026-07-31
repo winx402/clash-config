@@ -1,0 +1,10 @@
+# LTX Studio
+# Surge domain rule-set; no policy column.
+# Updated: 2026-07-31
+# GitHub source: Lightricks/LTX-Video official repository.
+
+DOMAIN-SUFFIX,ltx.studio
+DOMAIN-SUFFIX,ltx.io
+DOMAIN-SUFFIX,ltx.video
+DOMAIN,account.lightricks.com
+DOMAIN,static.lightricks.com

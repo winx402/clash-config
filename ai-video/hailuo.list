@@ -1,0 +1,10 @@
+# Hailuo AI (international)
+# Surge domain rule-set; no policy column.
+# Updated: 2026-07-31
+# GitHub sources: v2fly/domain-list-community and MiniMax-AI/MiniMax-MCP-JS.
+
+DOMAIN-SUFFIX,hailuoai.video
+DOMAIN-SUFFIX,hailuoai.com
+DOMAIN-SUFFIX,minimax.io
+DOMAIN-SUFFIX,minimax.chat
+DOMAIN-SUFFIX,minimaxi.com

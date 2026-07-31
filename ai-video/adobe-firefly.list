@@ -1,0 +1,9 @@
+# Adobe Firefly
+# Surge domain rule-set; no policy column.
+# Updated: 2026-07-31
+# GitHub source: iamsparshgupta/shadowlens extension/src/domains.ts
+
+DOMAIN,firefly.adobe.com
+DOMAIN,firefly-api.adobe.io
+DOMAIN,cc-api-data.adobe.io
+DOMAIN-SUFFIX,adobelogin.com

@@ -1,0 +1,14 @@
+# Dreamina (CapCut international)
+# Surge domain rule-set; no policy column.
+# Updated: 2026-07-31
+# GitHub source: duckduckgo/tracker-radar CapCut domain observations.
+
+DOMAIN-SUFFIX,dreamina.capcut.com
+DOMAIN,www.capcut.com
+DOMAIN,commerce-api-sg.capcut.com
+DOMAIN,edit-api-sg.capcut.com
+DOMAIN-SUFFIX,capcutapi.us
+DOMAIN-SUFFIX,capcutcdn-us.com
+DOMAIN-SUFFIX,capcutstatic.com
+DOMAIN-SUFFIX,tiktokv.us
+DOMAIN,p16-seeyou-sg.ibyteimg.com

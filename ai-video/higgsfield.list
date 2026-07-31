@@ -1,0 +1,7 @@
+# Higgsfield
+# Surge domain rule-set; no policy column.
+# Updated: 2026-07-31
+# GitHub evidence: duckduckgo/tracker-radar references higgsfield.ai.
+
+DOMAIN-SUFFIX,higgsfield.ai
+DOMAIN-SUFFIX,higgs.ai

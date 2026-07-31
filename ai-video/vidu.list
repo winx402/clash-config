@@ -1,0 +1,8 @@
+# Vidu international / legacy entry points
+# Surge domain rule-set; no policy column.
+# Updated: 2026-07-31
+# GitHub evidence: duckduckgo/tracker-radar references vidu.com and vidu.studio.
+# vidu.cn is intentionally excluded so the China site remains direct.
+
+DOMAIN-SUFFIX,vidu.com
+DOMAIN-SUFFIX,vidu.studio

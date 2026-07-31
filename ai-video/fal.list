@@ -1,0 +1,8 @@
+# fal.ai
+# Surge domain rule-set; no policy column.
+# Updated: 2026-07-31
+# GitHub source: fal-ai/fal-js official SDK.
+
+DOMAIN-SUFFIX,fal.ai
+DOMAIN-SUFFIX,fal.run
+DOMAIN-SUFFIX,fal.media

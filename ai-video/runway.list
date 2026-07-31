@@ -1,0 +1,7 @@
+# Runway
+# Surge domain rule-set; no policy column.
+# Updated: 2026-07-31
+# GitHub sources: runwayml/sdk-python and iamsparshgupta/shadowlens.
+
+DOMAIN-SUFFIX,runwayml.com
+DOMAIN-SUFFIX,runway.ml
