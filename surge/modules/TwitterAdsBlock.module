@@ -1,0 +1,16 @@
+#!name = Twitter/X 去广告
+#!desc = 去除 X (Twitter) 信息流中的广告及推广内容
+#!system = ios
+#!author = winx402
+#!category = 去广告
+
+[Rule]
+DOMAIN-SUFFIX,ads-twitter.com,REJECT
+DOMAIN-SUFFIX,ads-api.twitter.com,REJECT
+DOMAIN-SUFFIX,ton.twimg.com,REJECT
+
+[Script]
+Twitter 去广告 = type=http-response,pattern=https://api.twitter.com/2/(timeline/home|timeline/profile|search/adaptive|guide)\.json,requires-body=1,max-size=0,script-path=https://raw.githubusercontent.com/winx402/clash-config/main/surge/scripts/TwitterAdsBlock.js,timeout=10
+
+[MITM]
+hostname = %APPEND% api.twitter.com
