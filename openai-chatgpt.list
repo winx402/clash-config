@@ -1,22 +1,58 @@
 # OpenAI / ChatGPT Surge external ruleset
 # Policy is assigned by the importing RULE-SET line.
 #
-# Verified: 2026-10-09
-# - https://hello-web-demo-sep30.winx402.chatgpt.site returned the OpenAI /
-#   ChatGPT sign-in page (HTTP 401); its response cookie is scoped to
-#   .chatgpt.site.  DOMAIN-SUFFIX,chatgpt.site covers this site and future
-#   ChatGPT Sites under the same suffix.
-# - auth.openai.com and platform.openai.com resolve to Cloudflare endpoints;
-#   they are covered by DOMAIN-SUFFIX,openai.com.
-# - ChatGPT web, static resources, and generated-user-content domains are
-#   covered by the remaining suffix rules below.
+# Legacy baseline verification (retrieved 2026-10-09):
+# - This list preserves all 35 active rules from the current Surge profile's
+#   third-party OpenAI ruleset:
+#   https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/OpenAI/OpenAI.list
+# - That source identifies itself as Blackmatrix7's OpenAI list, last updated
+#   2025-06-06. Some entries are supporting services (for example, Arkose,
+#   LiveKit, Azure, Datadog, Stripe, and Sentry), rather than OpenAI-owned
+#   domains; they remain here to preserve the old routing behavior.
 #
-# Source references:
+# ChatGPT Sites verification (2026-10-09):
+# - https://hello-web-demo-sep30.winx402.chatgpt.site returned the OpenAI /
+#   ChatGPT sign-in page (HTTP 401), with a response cookie scoped to
+#   .chatgpt.site. The added DOMAIN-SUFFIX,chatgpt.site covers this site and
+#   other sites hosted beneath this suffix.
+#
+# Official reference points:
 # - https://help.openai.com/
 # - https://platform.openai.com/docs/
 
+DOMAIN,browser-intake-datadoghq.com
+DOMAIN,chat.openai.com.cdn.cloudflare.net
+DOMAIN,openai-api.arkoselabs.com
+DOMAIN,openaicom-api-bdcpf8c6d2e9atf6.z01.azurefd.net
+DOMAIN,openaicomproductionae4b.blob.core.windows.net
+DOMAIN,production-openaicom-storage.azureedge.net
+DOMAIN,static.cloudflareinsights.com
+DOMAIN-SUFFIX,ai.com
+DOMAIN-SUFFIX,algolia.net
+DOMAIN-SUFFIX,api.statsig.com
+DOMAIN-SUFFIX,auth0.com
 DOMAIN-SUFFIX,chatgpt.com
+DOMAIN-SUFFIX,chatgpt.livekit.cloud
 DOMAIN-SUFFIX,chatgpt.site
-DOMAIN-SUFFIX,openai.com
+DOMAIN-SUFFIX,client-api.arkoselabs.com
+DOMAIN-SUFFIX,events.statsigapi.net
+DOMAIN-SUFFIX,featuregates.org
+DOMAIN-SUFFIX,host.livekit.cloud
+DOMAIN-SUFFIX,identrust.com
+DOMAIN-SUFFIX,intercom.io
+DOMAIN-SUFFIX,intercomcdn.com
+DOMAIN-SUFFIX,launchdarkly.com
 DOMAIN-SUFFIX,oaistatic.com
 DOMAIN-SUFFIX,oaiusercontent.com
+DOMAIN-SUFFIX,observeit.net
+DOMAIN-SUFFIX,openai.com
+DOMAIN-SUFFIX,openaiapi-site.azureedge.net
+DOMAIN-SUFFIX,openaicom.imgix.net
+DOMAIN-SUFFIX,segment.io
+DOMAIN-SUFFIX,sentry.io
+DOMAIN-SUFFIX,stripe.com
+DOMAIN-SUFFIX,turn.livekit.cloud
+DOMAIN-KEYWORD,openai
+IP-CIDR,24.199.123.28/32,no-resolve
+IP-CIDR,64.23.132.171/32,no-resolve
+IP-ASN,20473,no-resolve
