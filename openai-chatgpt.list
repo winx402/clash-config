@@ -1,0 +1,22 @@
+# OpenAI / ChatGPT Surge external ruleset
+# Policy is assigned by the importing RULE-SET line.
+#
+# Verified: 2026-10-09
+# - https://hello-web-demo-sep30.winx402.chatgpt.site returned the OpenAI /
+#   ChatGPT sign-in page (HTTP 401); its response cookie is scoped to
+#   .chatgpt.site.  DOMAIN-SUFFIX,chatgpt.site covers this site and future
+#   ChatGPT Sites under the same suffix.
+# - auth.openai.com and platform.openai.com resolve to Cloudflare endpoints;
+#   they are covered by DOMAIN-SUFFIX,openai.com.
+# - ChatGPT web, static resources, and generated-user-content domains are
+#   covered by the remaining suffix rules below.
+#
+# Source references:
+# - https://help.openai.com/
+# - https://platform.openai.com/docs/
+
+DOMAIN-SUFFIX,chatgpt.com
+DOMAIN-SUFFIX,chatgpt.site
+DOMAIN-SUFFIX,openai.com
+DOMAIN-SUFFIX,oaistatic.com
+DOMAIN-SUFFIX,oaiusercontent.com
