@@ -1,0 +1,26 @@
+# Meta Muse / Meta AI - Surge external ruleset (no policy column)
+# Collected: 2026-11-15
+# DOMAIN-SUFFIX also covers API, WebSocket, and other subdomains.
+#
+# Official entry point:
+# https://about.fb.com/news/2026/09/introducing-muse-personal-ai-agent/
+# https://muse.ai/
+#
+# GitHub domain evidence:
+# https://github.com/Tartarus2014/Loon-Script/blob/1554bb62412e54a26bf27e7d78a1fb09c4885381/Rule/Other/Muse.lsr
+# https://github.com/VPSDance/ai-proxy-rules/blob/b27e34740f0b2f6d1e3f5565af1458028082c0a9/rules/surge/meta-ai.list
+# https://github.com/v2fly/domain-list-community/blob/master/data/meta
+# These are domain-routing sources, not a guarantee of account/region access.
+
+# Muse / Meta AI entry points, cloud VM, and content delivery
+DOMAIN-SUFFIX,muse.ai
+DOMAIN-SUFFIX,meta.ai
+DOMAIN-SUFFIX,metaaivm.com
+DOMAIN-SUFFIX,metaaiusercontent.com
+
+# Shared Meta login and static/media resources (also used by other Meta apps)
+DOMAIN-SUFFIX,atmeta.com
+DOMAIN-SUFFIX,meta.com
+DOMAIN-SUFFIX,facebook.com
+DOMAIN-SUFFIX,fbcdn.net
+DOMAIN-SUFFIX,cdninstagram.com
