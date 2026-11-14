@@ -9,14 +9,14 @@ const PENDING = 'wxq.checkin.pending.v1';
 const SECRET = 'TEST_PRIVATE_TOKEN_NEVER_LOG';
 const url = 'https://kohcamp.qq.com/operation/action/signinfo';
 const request = (extra = {}) => ({
-  id: 'request-1', method: 'POST', url, body: '{}',
-  headers: { mGameId: '40001', campRoleId: 'test-role', userId: 'test-user',
+  id: 'request-1', method: 'POST', url, body: '{"cSystem":"ios","h5Get":1,"gameId":"30001"}',
+  headers: { gameId: '30001', campRoleId: 'test-role', roleId: 'native-role', encode: '2', token: SECRET, userId: 'test-user', openId: 'test-open',
     msdkEncodeParam: SECRET, sig: 'test-sig', timestamp: '1700000000',
     'Content-Type': 'application/json', Host: 'kohcamp.qq.com', 'Content-Length': '2' },
   ...extra,
 });
 const result = (map, extra = {}) => ({ status: 200, headers: { returnCode: '0' },
-  body: JSON.stringify({ weekSignMap: map }), ...extra });
+  body: JSON.stringify({ returnCode: 0, data: { weekSignMap: map, weekList: Array.from({length:7}, (_,i)=>({date:i+1,gift:[{icon:'OS-test'}]})) } }), ...extra });
 
 async function execute({ type = 'generic', mode = 'run', store = new Map(), req,
   response, replies = [], trigger = 'editor', failWrites = false, clock = { now: Date.parse('2026-11-13T02:00:00Z') } } = {}) {
@@ -78,7 +78,7 @@ test('captures only after a paired successful response; no network calls or cred
   assert.ok(store.has(PENDING));
   const run = await execute({ type: 'http-response', store, req: request(), response: result('0000100') });
   const saved = JSON.parse(store.get(KEY));
-  assert.equal(saved.game, '40001');
+  assert.equal(saved.game, '30001');
   assert.equal(saved.headers.msdkencodeparam, SECRET);
   assert.equal(saved.headers.host, undefined);
   assert.equal(saved.headers['content-length'], undefined);
@@ -86,7 +86,7 @@ test('captures only after a paired successful response; no network calls or cred
 });
 
 test('ignores other games and foreign hosts', async () => {
-  for (const req of [request({ headers: { ...request().headers, mGameId: '20001' } }),
+  for (const req of [request({ headers: { ...request().headers, gameId: '20001' } }),
     request({ url: 'https://kohcamp.qq.com.evil.invalid/operation/action/signinfo' }),
     request({ url: 'https://kohcamp.qq.com/operation/action/signin' })]) {
     const run = await capture(new Map(), req);
@@ -96,7 +96,7 @@ test('ignores other games and foreign hosts', async () => {
 });
 
 test('rejects incomplete role/auth and non-JSON request body without altering traffic', async () => {
-  for (const req of [request({ headers: { mGameId: '40001' } }), request({ body: 'encrypted-body' })]) {
+  for (const req of [request({ headers: { gameId: '30001' } }), request({ body: 'encrypted-body' })]) {
     const run = await execute({ type: 'http-request', req });
     assert.ok(!run.store.has(KEY));
     assert.equal(run.calls.length, 0);
@@ -154,8 +154,8 @@ test('unsigned day submits the known role and verifies the server state afterwar
   const run = await execute({ store, replies: [result('0000000'),
     { status: 200, headers: { returnCode: '0' }, body: '{}' }, result('0000100')] });
   assert.equal(run.calls.length, 3);
-  assert.equal(run.calls[1].url, 'https://kohcamp.qq.com/operation/action/signin');
-  assert.deepEqual(JSON.parse(run.calls[1].body), { roleId: 'test-role' });
+  assert.equal(run.calls[1].url, 'https://kohcamp.qq.com/operation/action/newsignin');
+  assert.deepEqual(JSON.parse(run.calls[1].body), { cSystem: 'ios', h5Get: 1, gameId: '30001', roleId: 'native-role' });
   assert.equal(run.calls[2].url, url);
   assert.match(run.notices.join(''), /签到成功/);
 });
@@ -227,4 +227,91 @@ test('an active run is not duplicated; clear mode removes credential data', asyn
 test('persistent-store failure still completes the intercepted request', async () => {
   const run = await execute({ type: 'http-request', req: request(), failWrites: true });
   assert.equal(run.calls.length, 0);
+});
+
+
+test('missing optional userId/openId still allows capture and token is retained', async () => {
+  const h = {...request().headers}; delete h.userId; delete h.openId;
+  const { store } = await capture(new Map(),request({headers:h}));
+  const saved = JSON.parse(store.get(KEY));
+  assert.equal(saved.headers.token, SECRET);
+  assert.equal(saved.signRole, 'native-role');
+  assert.equal(saved.signGame, '30001');
+});
+
+test('old wrong game ID and conflicting body/header cannot capture', async () => {
+  for (const req of [request({ headers: {...request().headers, gameId:'40001'} }),
+    request({ body:'{"gameId":20001}' }),
+    request({ headers: {...request().headers, mGameId:'40001'} })]) {
+    const run = await capture(new Map(), req);
+    assert.ok(!run.store.has(KEY));
+  }
+});
+
+test('encode=2 by itself is not an authentication credential', async () => {
+  const run = await capture(new Map(), request({headers:{gameId:'30001',campRoleId:'test-role',encode:'2'}}));
+  assert.ok(!run.store.has(KEY));
+});
+
+test('missing request ID uses matching role/game identity and mismatched responses are rejected', async () => {
+  const req = request({ id: undefined });
+  const {store} = await capture(new Map(), req);
+  assert.ok(store.has(KEY));
+  const pending = new Map();
+  await execute({type:'http-request',store:pending,req});
+  await execute({type:'http-response',store:pending,req:request({id:undefined,headers:{...req.headers,campRoleId:'other'}}),response:result('0000100')});
+  assert.ok(!pending.has(KEY));
+});
+
+test('unpaired response with matching ID but different identity cannot capture', async () => {
+  const store = new Map();
+  await execute({type:'http-request',store,req:request()});
+  await execute({type:'http-response',store,req:request({headers:{...request().headers,campRoleId:'other'}}),response:result('0000100')});
+  assert.ok(!store.has(KEY));
+});
+
+test('status with no credentials displays useful capture progress without values', async () => {
+  const store = new Map();
+  await execute({type:'http-request',store,req:request()});
+  const run = await execute({store,mode:'status'});
+  assert.match(run.notices.join(''), /等待对应成功响应/);
+  assert.equal(run.calls.length,0);
+  assert.ok(!run.notices.join('').includes('native-role'));
+});
+
+test('query gameId string type is preserved for new submission', async () => {
+  const {store} = await capture(new Map(),request({body:'{"gameId":"30001"}'}));
+  const run = await execute({store,replies:[result('0000000'),result('0000000'),result('0000100')]});
+  assert.deepEqual(JSON.parse(run.calls[1].body),{gameId:'30001',roleId:'native-role'});
+});
+
+test('missing native role allows querying but blocks submission', async () => {
+  const h = {...request().headers}; delete h.roleId;
+  const {store} = await capture(new Map(),request({headers:h}));
+  const status = await execute({store,mode:'status',replies:[result('0000000')]});
+  assert.equal(status.calls.length,1);
+  const run = await execute({store,replies:[result('0000000')]});
+  assert.equal(run.calls.length,1);
+  assert.match(run.notices.join(''),/尚无游戏角色字段/);
+});
+
+test('past replenishment bits are accepted and today already marked 2 does not resubmit', async () => {
+  const {store} = await capture(new Map(),request(),result('2000100'));
+  const run = await execute({store,replies:[result('2000200')]});
+  assert.equal(run.calls.length,1);
+  assert.match(run.notices.join(''),/今日已签到/);
+});
+
+
+test('native role changes cannot silently replace the bound role',async()=>{
+  const {store}=await capture(); const original=store.get(KEY);
+  await capture(store,request({headers:{...request().headers,roleId:'different-native-role'}}));
+  assert.equal(store.get(KEY),original);
+});
+
+test('unusable legacy 40001 session can be replaced by verified 30001 session',async()=>{
+  const {store}=await capture(); const old=JSON.parse(store.get(KEY)); old.game='40001';
+  store.set(KEY,JSON.stringify(old));
+  await capture(store);
+  assert.equal(JSON.parse(store.get(KEY)).game,'30001');
 });
