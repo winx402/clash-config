@@ -33,10 +33,10 @@
       throw problem("无法保存本机数据");
     }
   }
-  function notify(message, quiet) {
+  function notify(message, quiet, force) {
     console.log("[万象棋] " + message);
     var previous = read(NOTICE);
-    if (quiet || (previous && previous.message === message && Date.now() - previous.time < 3600000)) return;
+    if (quiet || (!force && previous && previous.message === message && Date.now() - previous.time < 3600000)) return;
     if (typeof $notification !== "undefined") $notification.post("王者万象棋签到", "", message);
     // A notification must not fail again when storage is already unavailable.
     $persistentStore.write(JSON.stringify({ message: message, time: Date.now() }), NOTICE);
@@ -98,7 +98,7 @@
       if (code === null) throw problem("无法识别业务状态码，已停止");
       if (code !== 0) {
         if ([-30406, -32353, -32354, -30003, -30314].indexOf(code) >= 0) {
-          throw problem("登录凭证失效或不完整，请在 iPhone 营地重开万象棋每日福利");
+          throw problem("登录凭证失效或不完整；请先停用临时捕获模块并完成营地登录，再临时启用捕获、重开万象棋每日福利，捕获后立即停用");
         }
         throw problem("接口返回业务错误，状态码 " + code);
       }
@@ -137,14 +137,14 @@
     pending = pending.filter(function (item) { return Date.now() - item.time < 120000 && (item.id || "") !== ($request.id || ""); }).slice(-3);
     pending.push({ id: $request.id || "", time: Date.now(), template: template });
     write(PENDING, pending);
-    diagnose("查询请求已记录，等待对应成功响应；请核对响应捕获脚本和 MITM");
+    diagnose("查询请求已记录，等待对应成功响应；请核对临时捕获模块的响应脚本和 MITM，捕获后立即停用该模块");
   }
   function captureResponse() {
     var pending = read(PENDING) || [];
     var id = $request.id || "";
     var item = pending.filter(function (entry) { return entry.id === id && paired($request, entry.template) && Date.now() - entry.time < 120000; })[0];
     write(PENDING, pending.filter(function (entry) { return entry !== item && Date.now() - entry.time < 120000; }));
-    if (!item) { diagnose("响应未能匹配近期查询请求；请同时启用请求和响应捕获，再重新进入福利页"); return; }
+    if (!item) { diagnose("响应未能匹配近期查询请求；请先完成登录，再临时启用捕获模块的请求和响应脚本，重新进入福利页，捕获后立即停用"); return; }
     var result = checkResponse($response, $response.body);
     signMap(result.body); // Validate the actual successful state, not HTTP 200 alone.
     var previous = read(KEY);
@@ -155,7 +155,7 @@
     }
     write(KEY, item.template);
     diagnose("已通过配对响应验证并保存凭证");
-    if (!previous) notify("已捕获当前万象棋角色的凭证，可运行只查状态进行验证");
+    notify("已捕获当前万象棋角色的凭证，请立即停用临时捕获模块，再运行只查状态验证；常驻签到模块继续启用", false, true);
   }
   function post(url, h, body) {
     return new Promise(function (resolve, reject) {
@@ -170,7 +170,7 @@
   function validateStored(session) {
     if (!session || !route(session.url) || session.game !== GAME) {
       var diagnostic = read(DIAGNOSTIC);
-      throw problem("尚无有效凭证，请在 iPhone 营地打开万象棋每日福利。" + (diagnostic ? diagnostic.message : "尚未记录到匹配查询，请核对模块、脚本更新和 MITM"));
+      throw problem("尚无有效凭证；请先停用临时捕获模块并完成营地登录，再临时启用捕获、打开万象棋每日福利，捕获后立即停用。" + (diagnostic ? diagnostic.message : "尚未记录到匹配查询，请核对临时捕获模块、脚本更新和 MITM"));
     }
     var recreated = captureTemplate({ url: session.url, method: "POST", headers: session.headers, body: session.body });
     if (!recreated || !sameAccount(session, recreated) || session.signRole !== recreated.signRole || session.signGame !== recreated.signGame) throw problem("本机凭证数据不一致，请清除后重新捕获");
@@ -203,7 +203,7 @@
       if (!latest || !sameAccount(session, latest)) throw problem("账号或角色已变化，已停止签到");
       session = latest;
       validateStored(session);
-      if (!session.signRole) throw problem("查询成功，但尚无游戏角色字段 roleId；已停止签到，请重新进入福利页捕获");
+      if (!session.signRole) throw problem("查询成功，但尚无游戏角色字段 roleId；已停止签到，请在登录后临时启用捕获模块并重开福利页，捕获后立即停用");
       var path = route(session.url);
       var common = parse(session.body);
       await post(ORIGIN + SIGN + path.query, session.headers, JSON.stringify({ cSystem: common.cSystem, h5Get: common.h5Get,

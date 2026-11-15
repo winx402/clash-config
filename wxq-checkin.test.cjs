@@ -315,3 +315,58 @@ test('unusable legacy 40001 session can be replaced by verified 30001 session',a
   await capture(store);
   assert.equal(JSON.parse(store.get(KEY)).game,'30001');
 });
+
+test('resident module has only existing cron/generic jobs and no traffic interception', () => {
+  const module = fs.readFileSync(`${__dirname}/wxq-checkin.sgmodule`, 'utf8');
+  const sections = [...module.matchAll(/^\[([^\]]+)\]$/gm)].map(match => match[1]);
+  assert.deepEqual(sections, ['Script']);
+  const jobs = module.split('\n').filter(line => /^[^#!\s].* = type=/.test(line));
+  assert.equal(jobs.length, 4);
+  assert.equal(jobs.filter(line => line.includes('type=cron,')).length, 1);
+  assert.equal(jobs.filter(line => line.includes('type=generic,')).length, 3);
+  assert.ok(jobs.some(line => line.includes('cronexp="5 9,18 * * *",wake-system=true')));
+  assert.ok(!/^hostname\s*=|type=http-|^\[MITM\]/m.test(module));
+  for (const mode of ['run', 'status', 'clear']) assert.ok(jobs.some(line => line.endsWith(`argument=mode=${mode}`)));
+});
+
+test('temporary capture module requests only one MITM host and the signinfo request/response', () => {
+  const module = fs.readFileSync(`${__dirname}/wxq-checkin-capture.sgmodule`, 'utf8');
+  assert.deepEqual(module.match(/^hostname\s*=.*$/gm), ['hostname = %APPEND% kohcamp.qq.com']);
+  const jobs = module.split('\n').filter(line => /^[^#!\s].* = type=/.test(line));
+  assert.equal(jobs.length, 2);
+  for (const type of ['http-request', 'http-response']) {
+    const job = jobs.find(line => line.includes(`type=${type},`));
+    assert.ok(job);
+    const pattern = new RegExp(job.match(/,pattern=(.*?),requires-body=/)[1]);
+    assert.ok(pattern.test(url));
+    assert.ok(pattern.test(`${url}?source=welfare`));
+    for (const other of ['https://kohcamp.qq.com/login', 'https://kohcamp.qq.com/operation/action/newsignin',
+      'https://kohcamp.qq.com.evil.invalid/operation/action/signinfo', 'http://kohcamp.qq.com/operation/action/signinfo']) {
+      assert.ok(!pattern.test(other));
+    }
+    assert.ok(job.includes('requires-body=true,max-size=65536'));
+    assert.ok(job.endsWith('script-path=https://raw.githubusercontent.com/winx402/clash-config/main/wxq-checkin.js,timeout=5'));
+  }
+});
+
+test('first and renewed capture both notify immediate disable without clearing shared session', async () => {
+  const first = await capture();
+  assert.match(first.notices.join(''), /立即停用临时捕获模块/);
+  const renewed = await capture(first.store);
+  assert.match(renewed.notices.join(''), /立即停用临时捕获模块/);
+  const status = await execute({ store: renewed.store, mode: 'status', replies: [result('0000100')] });
+  assert.equal(status.calls.length, 1);
+  assert.ok(status.store.has(KEY));
+  assert.match(status.notices.join(''), /今日已签到/);
+});
+
+test('missing or expired credentials explain login before temporary capture', async () => {
+  const missing = await execute({mode:'status'});
+  assert.match(missing.notices.join(''), /先停用临时捕获模块并完成营地登录/);
+  const {store} = await capture();
+  const expired = await execute({store,mode:'status',replies:[result('0000100',{
+    body:JSON.stringify({returnCode:-30314})
+  })]});
+  assert.match(expired.notices.join(''), /先停用临时捕获模块并完成营地登录/);
+  assert.equal(expired.calls.length,1);
+});

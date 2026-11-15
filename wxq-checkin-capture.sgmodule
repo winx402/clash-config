@@ -1,0 +1,10 @@
+#!name=王者万象棋临时凭证捕获 20261115b
+#!desc=可选临时模块。先停用本模块并完成营地微信登录；登录成功后才启用，进入万象棋每日福利，收到捕获通知后立即停用。MITM 覆盖 kohcamp.qq.com 的 TLS，可能干扰微信登录；本模块没有定时任务、不提交签到，凭证与常驻签到模块共享。
+#!system=ios
+
+[MITM]
+hostname = %APPEND% kohcamp.qq.com
+
+[Script]
+万象棋凭证请求 = type=http-request,pattern=^https://kohcamp\.qq\.com/operation/action/signinfo(?:\?.*)?$,requires-body=true,max-size=65536,script-path=https://raw.githubusercontent.com/winx402/clash-config/main/wxq-checkin.js,timeout=5
+万象棋凭证验证 = type=http-response,pattern=^https://kohcamp\.qq\.com/operation/action/signinfo(?:\?.*)?$,requires-body=true,max-size=65536,script-path=https://raw.githubusercontent.com/winx402/clash-config/main/wxq-checkin.js,timeout=5

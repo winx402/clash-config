@@ -1,13 +1,8 @@
-#!name=王者万象棋每日签到 测试版 20261115
-#!desc=捕获 iPhone 营地福利页的本机凭证，每日 09:05 和 18:05 检查并签到。仅处理万象棋，不补签、不兑换。修正真实游戏 ID 30001 与 newSignIn 接口。需配置 MITM；更新后请刷新配套脚本，重新进入福利页捕获并只查验证。真实提交仍待验收。
+#!name=王者万象棋每日签到 测试版 20261115b
+#!desc=常驻签到模块：不启用 MITM、不拦截 App 请求。复用本机已捕获凭证，每日 09:05 和 18:05 检查并签到，仅万象棋、不补签不兑换。首次或凭证失效时，先完成营地登录，再临时启用单独的凭证捕获模块，捕获后立即停用。真实提交仍待验收。
 #!system=ios
 
-[MITM]
-hostname = %APPEND% kohcamp.qq.com
-
 [Script]
-万象棋凭证请求 = type=http-request,pattern=^https://kohcamp\.qq\.com/operation/action/signinfo(?:\?.*)?$,requires-body=true,max-size=65536,script-path=https://raw.githubusercontent.com/winx402/clash-config/main/wxq-checkin.js,timeout=5
-万象棋凭证验证 = type=http-response,pattern=^https://kohcamp\.qq\.com/operation/action/signinfo(?:\?.*)?$,requires-body=true,max-size=65536,script-path=https://raw.githubusercontent.com/winx402/clash-config/main/wxq-checkin.js,timeout=5
 万象棋每日签到 = type=cron,cronexp="5 9,18 * * *",wake-system=true,script-path=https://raw.githubusercontent.com/winx402/clash-config/main/wxq-checkin.js,timeout=45,argument=mode=run
 万象棋立即签到 = type=generic,script-path=https://raw.githubusercontent.com/winx402/clash-config/main/wxq-checkin.js,timeout=45,argument=mode=run
 万象棋只查状态 = type=generic,script-path=https://raw.githubusercontent.com/winx402/clash-config/main/wxq-checkin.js,timeout=20,argument=mode=status
