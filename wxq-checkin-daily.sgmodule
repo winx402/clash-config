@@ -1,0 +1,10 @@
+#!name=王者万象棋日常页面刷新 实验版 20261115c
+#!desc=独立自选开启。TLS 解密覆盖整个 camp.qq.com，脚本仅处理普通 /h5/ 网页文档，以已存万象棋模板的同账号候选凭证只读验证后刷新；不解密 kohcamp.qq.com，不登录、不签到。首次验证页面可能额外等待约 1.2 秒；网页未携带支持字段时不会更新。先保留主签到模块，首次仍需成功捕获角色模板。真机覆盖和持续有效期待验收。
+#!system=ios
+
+[MITM]
+hostname = %APPEND% camp.qq.com
+
+[Script]
+万象棋日常页面刷新 = type=http-response,pattern=^https://camp\.qq\.com/h5/(?:[^?#]*/|[^?#]*\.html?)(?:\?[^#]*)?$,requires-body=false,script-path=https://raw.githubusercontent.com/winx402/clash-config/main/wxq-checkin-daily.js,timeout=3
+万象棋日常刷新诊断 = type=generic,script-path=https://raw.githubusercontent.com/winx402/clash-config/main/wxq-checkin-daily.js,timeout=3,argument=mode=diagnostic
