@@ -3,7 +3,7 @@
  */
 (function () {
   "use strict";
-  var VERSION = "20261115c";
+  var VERSION = "20261115d";
   var KEY = "wxq.checkin.session.v1";
   var STATE = "wxq.checkin.daily.v1";
   var URL_INFO = "https://kohcamp.qq.com/operation/action/signinfo";
@@ -12,8 +12,12 @@
   var MESSAGES = {
     seen: "看到了营地网页文档入口", empty: "看到了页面，但没有支持的认证参数", template: "缺少结构有效的万象棋模板；请先完成一次临时捕获",
     account: "无法证明与已存万象棋账号一致；保留原凭证", mismatch: "页面账号或身份字段不匹配；保留原凭证", conflict: "页面字段冲突或格式不明确；保留原凭证",
-    validating: "同账号候选已开始只读验证", rejected: "候选未通过严格只读验证；保留原凭证", timeout: "候选验证超时；保留原凭证",
-    updated: "验证通过，已更新同账号凭证", same: "验证通过，凭证相同；未伪报更新", recent: "凭证相同且近期已验证；本次未发起查询",
+    validating: "同账号候选已开始只读验证", rejected: "候选未通过严格只读验证；保留原凭证",
+    network: "候选验证网络失败或网络层超时；保留原凭证", http: "候选验证 HTTP 状态不成功；保留原凭证",
+    nonjson: "候选验证响应不是 JSON；保留原凭证", business: "候选验证业务码不成功；保留原凭证",
+    codeformat: "候选验证业务码格式不可识别；保留原凭证", nocode: "候选验证没有明确业务码；保留原凭证",
+    map: "候选验证缺少可识别七日签到图；保留原凭证", timeout: "候选验证超时；保留原凭证",
+    updated: "验证通过，已更新同账号凭证", wrapped: "验证通过，凭证相同；已修正请求公共包装", same: "验证通过，凭证相同；未伪报更新", recent: "凭证相同且近期已验证；本次未发起查询",
     older: "候选签名时间早于已存凭证；保留原凭证", filtered: "匹配网页路径，但未认定为文档导航；未读取页面参数",
     stale: "验证期间模板或页面已变化；未写回旧结果", storage: "本机存储失败；未确认更新"
   };
@@ -37,8 +41,9 @@
     var state = read(STATE) || {};
     if (ticket && state.ticket !== ticket) return;
     state.code = code; state.message = MESSAGES[code]; state.time = Date.now(); state.version = VERSION;
-    if (["validating", "rejected", "timeout", "updated", "same", "recent", "stale"].indexOf(code) >= 0) state.progress = { code: code, time: Date.now() };
+    if (["validating", "rejected", "network", "http", "nonjson", "business", "codeformat", "nocode", "map", "timeout", "updated", "wrapped", "same", "recent", "stale"].indexOf(code) >= 0) state.progress = { code: code, time: Date.now() };
     Object.keys(extra || {}).forEach(function (k) { state[k] = extra[k]; });
+    if (extra && extra.validation && state.progress && state.progress.code === code) state.progress.validation = extra.validation;
     write(STATE, state);
   }
   function query(url) {
@@ -139,30 +144,49 @@
       if (nextTime !== null && oldTime !== null && nextTime < oldTime) fail("older");
     }
     var out = {};
-    ["gameid", "mgameid", "camproleid", "roleid", "userid", "openid", "appid", "cclientversionname", "user-agent"].forEach(function (k) { if (old.headers[k]) out[k] = old.headers[k]; });
+    ["gameid", "mgameid", "camproleid", "roleid", "userid", "openid", "appid", "source", "csystem", "h5get", "gameopenid", "areaid", "serverid", "cclientversionname", "user-agent"].forEach(function (k) { if (old.headers[k]) out[k] = old.headers[k]; });
     out["content-type"] = "application/json";
+    // Official transport W(): these are protocol controls, not old credentials.
+    out["accept-encrypt"] = ""; out.noencrypt = "1"; out["x-client-proto"] = "https";
+    if (!out.csystem && typeof old.body.cSystem === "string") out.csystem = old.body.cSystem;
+    if (!out.h5get && (typeof old.body.h5Get === "number" || typeof old.body.h5Get === "string")) out.h5get = String(old.body.h5Get);
     Object.keys(fresh).forEach(function (k) { out[k] = fresh[k]; });
     var body = { gameId: old.session.signGame };
     ["cSystem", "h5Get", "roleId"].forEach(function (k) { if (old.body[k] !== undefined) body[k] = old.body[k]; });
     var next = parse(original);
-    next.url = URL_INFO; next.headers = out; next.body = JSON.stringify(body);
+    // Only an existing template's bounded routing hint may survive its query.
+    // The official snapshot does not declare routing mandatory; never copy a
+    // generic query, customPath, token, signature, URL or opaque credential.
+    var oldQuery = query(old.session.url), routing = oldQuery.routing;
+    var infoUrl = URL_INFO;
+    if (routing && /^[a-z0-9][a-z0-9_.-]{0,63}$/i.test(routing)) infoUrl += "?routing=" + encodeURIComponent(routing);
+    next.url = infoUrl; next.headers = out; next.body = JSON.stringify(body);
     var oldAuth = {}, newAuth = {};
     AUTH.forEach(function (k) { if (old.headers[k]) oldAuth[k] = old.headers[k]; if (out[k]) newAuth[k] = out[k]; });
-    var same = JSON.stringify(oldAuth) === JSON.stringify(newAuth) && old.session.url === URL_INFO &&
+    var same = JSON.stringify(oldAuth) === JSON.stringify(newAuth) && old.session.url === infoUrl &&
       !Object.keys(old.body).some(function (k) { return AUTH.indexOf(k.toLowerCase()) >= 0; });
-    return { next: next, same: same };
+    var requestChanged = Object.keys(out).some(function (k) { return AUTH.indexOf(k) < 0 && old.headers[k] !== out[k]; });
+    return { next: next, same: same, requestChanged: requestChanged };
   }
-  function strictSuccess(res, data) {
-    if (!res || Number(res.status) !== 200 || typeof data !== "string" || data.length > 262144) return false;
-    var b = parse(data), h = normalize(res.headers), found = false;
-    if (!b || typeof b !== "object" || Array.isArray(b)) return false;
-    var codes = [b.code, b.returnCode, b.resultCode, b.retCode, h.returncode];
+  function checkedResponse(res, data) {
+    var status = res && /^\d{3}$/.test(String(res.status)) ? Number(res.status) : null;
+    var detail = { httpStatus: status, businessCode: null };
+    function result(code) { return { code: code, validation: detail }; }
+    if (status !== 200) return result("http");
+    if (typeof data !== "string" || data.length > 262144) return result("nonjson");
+    var b = parse(data), h;
+    if (!b || typeof b !== "object" || Array.isArray(b)) return result("nonjson");
+    try { h = normalize(res.headers); } catch (_) { return result("codeformat"); }
+    var codes = [b.code, b.returnCode, b.resultCode, b.retCode, h.returncode], found = false;
     for (var i = 0; i < codes.length; i++) {
       if (codes[i] === undefined || codes[i] === null) continue;
-      if (!/^-?\d+$/.test(String(codes[i])) || Number(codes[i]) !== 0) return false;
-      found = true;
+      if (!/^-?\d{1,9}$/.test(String(codes[i]))) return result("codeformat");
+      detail.businessCode = Number(codes[i]); found = true;
+      if (detail.businessCode !== 0) return result("business");
     }
-    return found && b.data && typeof b.data.weekSignMap === "string" && /^[012]{7}$/.test(b.data.weekSignMap);
+    if (!found) return result("nocode");
+    if (!(b.data && typeof b.data.weekSignMap === "string" && /^[012]{7}$/.test(b.data.weekSignMap))) return result("map");
+    var accepted = result(""); accepted.headers = h; return accepted;
   }
   function current() { var state = read(STATE); return !finished && state && state.ticket === ticket && $persistentStore.read(KEY) === original; }
   function refresh() {
@@ -188,22 +212,32 @@
     var old = template(original);
     identity(q, h, old);
     var c = candidate(q, h, old), state = read(STATE);
-    if (c.same && state.verifiedAt && state.verifiedCapturedAt === old.session.capturedAt && Date.now() - state.verifiedAt < 60000) { diagnostic("recent"); done(); return; }
+    if (c.same && !c.requestChanged && state.verifiedAt && state.verifiedCapturedAt === old.session.capturedAt && Date.now() - state.verifiedAt < 60000) { diagnostic("recent"); done(); return; }
     diagnostic("validating");
-    var timer = setTimeout(function () { if (current()) diagnostic("timeout"); done(); }, 1200);
-    $httpClient.post({ url: URL_INFO, headers: c.next.headers, body: c.next.body, timeout: 1,
+    var timer = setTimeout(function () { if (current()) diagnostic("timeout"); done(); }, 3500);
+    $httpClient.post({ url: c.next.url, headers: c.next.headers, body: c.next.body, timeout: 3,
       "auto-cookie": false, "auto-redirect": false }, function (error, response, data) {
       if (finished) return;
       clearTimeout(timer);
       try {
         if (!current()) { diagnostic("stale"); done(); return; }
-        if (error || !strictSuccess(response, data)) { diagnostic("rejected"); done(); return; }
+        if (error) { diagnostic("network", { validation: { httpStatus: null, businessCode: null } }); done(); return; }
+        var checked = checkedResponse(response, data);
+        if (checked.code) { diagnostic(checked.code, { validation: checked.validation }); done(); return; }
+        // Official response interceptor accepts renewed tokens only after this
+        // response. Here require strict candidate success before saving them.
+        var responseChanged = false;
+        ["msdktoken", "gametoken"].forEach(function (k) {
+          var value = checked.headers[k];
+          if (value && value.length <= 16384) { if (c.next.headers[k] !== value) responseChanged = true; c.next.headers[k] = value; }
+        });
         // All checks and the final reread/write are synchronous, with no await.
         // Surge has no cross-script CAS; this guards observable clear/recapture,
         // newer daily attempts, and out-of-order HTTP callbacks.
         if (!current()) { diagnostic("stale"); done(); return; }
-        if (!c.same) { c.next.capturedAt = Date.now(); write(KEY, c.next); }
-        diagnostic(c.same ? "same" : "updated", { verifiedAt: Date.now(), verifiedCapturedAt: c.same ? old.session.capturedAt : c.next.capturedAt });
+        var authChanged = !c.same || responseChanged, changed = authChanged || c.requestChanged;
+        if (changed) { c.next.capturedAt = Date.now(); write(KEY, c.next); }
+        diagnostic(authChanged ? "updated" : c.requestChanged ? "wrapped" : "same", { verifiedAt: Date.now(), verifiedCapturedAt: changed ? c.next.capturedAt : old.session.capturedAt, validation: checked.validation });
       } catch (_) { try { diagnostic("storage"); } catch (_) {} }
       done();
     });
@@ -212,10 +246,15 @@
     if (typeof $script !== "undefined" && $script.type === "http-response") refresh();
     else {
       var state = read(STATE), message = state && MESSAGES[state.code] ? MESSAGES[state.code] : "尚未看到符合条件的营地网页文档入口";
+      function safeDetail(detail) {
+        if (!detail) return "";
+        return " HTTP=" + (typeof detail.httpStatus === "number" ? detail.httpStatus : "无") + "，业务码=" + (typeof detail.businessCode === "number" ? detail.businessCode : "无");
+      }
       var suffix = state ? "；已观察页面 " + (Number(state.pages) || 0) + " 次；记录时间 " + new Date(state.time).toISOString() : "";
+      if (state && state.validation) suffix += "；最近响应" + safeDetail(state.validation);
       if (state && state.filtered) suffix += "；路径过滤 " + state.filtered + " 次，最近原因 " + state.filterReason;
       if (state && state.fields) suffix += "；字段类别（仅有无） " + Object.keys(state.fields).map(function (k) { return k + "=" + (state.fields[k] ? "有" : "无"); }).join("，");
-      if (state && state.progress && MESSAGES[state.progress.code]) suffix += "；最近验证进度：" + MESSAGES[state.progress.code] + "（" + new Date(state.progress.time).toISOString() + "）";
+      if (state && state.progress && MESSAGES[state.progress.code]) suffix += "；最近验证进度：" + MESSAGES[state.progress.code] + "（" + new Date(state.progress.time).toISOString() + "）" + safeDetail(state.progress.validation);
       var text = "[万象棋日常刷新 " + VERSION + "] " + message + suffix;
       console.log(text);
       if (typeof $notification !== "undefined") $notification.post("万象棋日常刷新诊断", "只读；未发起网络请求", text);

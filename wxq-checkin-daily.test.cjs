@@ -48,7 +48,7 @@ test('opt-in module only MITMs camp.qq.com, no request hook, body buffering or c
 
 test('same-account ordinary page validates fresh-only signed credentials and preserves all bindings', () => {
   const r = run(); assert.equal(r.calls.length, 1); assert.equal(r.done, 0); assert.equal(r.diag().code, 'validating');
-  const call = r.calls[0]; assert.equal(call.url, INFO); assert.equal(call.timeout, 1); assert.equal(call['auto-cookie'], false); assert.equal(call['auto-redirect'], false);
+  const call = r.calls[0]; assert.equal(call.url, INFO); assert.equal(call.timeout, 3); assert.equal(call['auto-cookie'], false); assert.equal(call['auto-redirect'], false);
   assert.equal(call.headers.msdkencodeparam, NEW); assert.equal(call.headers.token, undefined); assert.ok(!JSON.stringify(call).includes(OLD));
   r.reply(); assert.equal(r.done, 1); assert.equal(r.diag().code, 'updated');
   for (const k of ['role','signRole','signGame','identity','appid','game']) assert.equal(r.saved()[k], session()[k]);
@@ -130,19 +130,19 @@ test('strict validation requires HTTP 200 explicit all-zero business codes and e
   const replies=[success({data:{weekSignMap:'0000000'}}),success({returnCode:0,data:{weekSignMap:'111111'}}),success({returnCode:0,data:{weekSignMap:'1111113'}}),
     success({returnCode:0,code:-30314,data:{weekSignMap:'0000000'}}),success({returnCode:0,data:{weekSignMap:'0000000'}},{returncode:'-1'}),
     success({returnCode:'ok',data:{weekSignMap:'0000000'}}),{status:302,headers:{},body:success().body},{status:200,headers:{},body:'<html>login</html>'}];
-  for(const reply of replies){const r=run(),before=r.store.get(KEY);r.reply(reply);assert.equal(r.diag().code,'rejected');assert.equal(r.store.get(KEY),before);assert.equal(r.done,1);r.privacy();}
+  for(const reply of replies){const r=run(),before=r.store.get(KEY);r.reply(reply);assert.ok(['business','map','nocode','codeformat','http','nonjson'].includes(r.diag().code));assert.equal(r.store.get(KEY),before);assert.equal(r.done,1);r.privacy();}
 });
 
 test('same credentials get a real first query and a distinct same result; subsequent one-minute same event skips query', () => {
   const s=session();s.headers={gameid:'30001',camproleid:'camp-role',roleid:'native-role',userid:'camp-user',appid:'camp-app',token:NEW,'content-type':'application/json'};
   const store=storeFor(s),before=store.get(KEY),r=run({store,req:page(`userId=camp-user&token=${NEW}`)});
-  assert.equal(r.calls.length,1);r.reply();assert.equal(r.diag().code,'same');assert.equal(store.get(KEY),before);
-  const next=run({store,req:page(`userId=camp-user&token=${NEW}`)});assert.equal(next.calls.length,0);assert.equal(next.diag().code,'recent');assert.equal(next.done,1);assert.equal(store.get(KEY),before);
+  assert.equal(r.calls.length,1);r.reply();assert.equal(r.diag().code,'wrapped');assert.equal(r.saved().headers.token,NEW);
+  const next=run({store,req:page(`userId=camp-user&token=${NEW}`)});assert.equal(next.calls.length,0);assert.equal(next.diag().code,'recent');assert.equal(next.done,1);assert.equal(r.saved().headers.token,NEW);
 });
 
 test('a failed same-credential first verification cannot create a throttle success', () => {
   const s=session();s.headers.token=NEW;delete s.headers.msdkencodeparam;delete s.headers.sig;delete s.headers.timestamp;delete s.headers.encode;
-  const store=storeFor(s),r=run({store,req:page(`userId=camp-user&token=${NEW}`)});r.reply(success({returnCode:-30314}));assert.equal(r.diag().code,'rejected');
+  const store=storeFor(s),r=run({store,req:page(`userId=camp-user&token=${NEW}`)});r.reply(success({returnCode:-30314}));assert.equal(r.diag().code,'business');
   assert.equal(run({store,req:page(`userId=camp-user&token=${NEW}`)}).calls.length,1);
 });
 
@@ -159,7 +159,7 @@ test('deadline passes page unchanged and any later HTTP callback is inert', () =
 });
 
 test('network failures and storage failures never claim a successful update', () => {
-  const r=run(),before=r.store.get(KEY);r.reply(null,'PRIVATE error including '+NEW);assert.equal(r.diag().code,'rejected');assert.equal(r.store.get(KEY),before);r.privacy();
+  const r=run(),before=r.store.get(KEY);r.reply(null,'PRIVATE error including '+NEW);assert.equal(r.diag().code,'network');assert.equal(r.store.get(KEY),before);r.privacy();
   const fail=run({failWrite:k=>k===KEY});fail.reply();assert.equal(fail.diag().code,'storage');assert.equal(fail.saved().headers.token,OLD);assert.equal(fail.done,1);
   const all=run({failWrite:()=>true});assert.equal(all.done,1);assert.equal(all.calls.length,0);
 });
@@ -213,4 +213,47 @@ test('opaque token has no inferred timestamp ordering', () => {
 
 test('path-only filtered events retain anonymous reason/count without reading malformed query', () => {
   const r=run({req:page('token=%ZZ',{Accept:'application/json'} )});assert.equal(r.done,1);assert.equal(r.diag().code,'filtered');assert.equal(r.diag().filterReason,'html-accept');assert.equal(r.diag().filtered,1);assert.equal(r.diag().fields,undefined);r.privacy();
+});
+
+test('official transport constants and known template common metadata survive without old auth alternatives', () => {
+  const s=session();Object.assign(s.headers,{source:'app',cSystem:'ios',h5Get:'1',gameOpenid:'game-open',areaId:'1',serverId:'2',customPath:'DO_NOT_COPY',token:OLD});
+  const r=run({store:storeFor(s)}),h=r.calls[0].headers;
+  assert.equal(h['accept-encrypt'],'');assert.equal(h.noencrypt,'1');assert.equal(h['x-client-proto'],'https');
+  for(const k of ['source','csystem','h5get','gameopenid','areaid','serverid'])assert.ok(h[k]);
+  assert.equal(h.custompath,undefined);assert.ok(!JSON.stringify(r.calls[0]).includes(OLD));r.reply();r.privacy();
+});
+
+test('template query keeps only bounded routing and still removes all old URL authentication', () => {
+  const s=session();s.url+=`?routing=operation-v1&token=${OLD}&sig=${OLD}&arbitrary=${OLD}`;
+  const r=run({store:storeFor(s)});assert.equal(r.calls[0].url,INFO+'?routing=operation-v1');assert.ok(!JSON.stringify(r.calls[0]).includes(OLD));r.reply();
+  const bad=session();bad.url+='?routing=https%3A%2F%2Fevil.invalid%2F&token='+OLD;
+  const no=run({store:storeFor(bad)});assert.equal(no.calls[0].url,INFO);
+});
+
+test('query signature decode follows official qs: encoded plus, literal plus and encoded percent', () => {
+  for(const [encoded,expected] of [['a%2Bb%2Fc%3D','a+b/c='],['a+b','a b'],['a%252Bb','a%2Bb']]){
+    const r=run({req:page('userId=camp-user&msdkEncodeParam='+encoded+'&sig=s&timestamp=200')});assert.equal(r.calls[0].headers.msdkencodeparam,expected);r.reply();
+  }
+});
+
+test('safe result diagnostics distinguish network, HTTP, JSON, business, missing code and missing map', () => {
+  for(const [reply,expected,status,code] of [
+    [{status:503,headers:{},body:'anything'},'http',503,null],
+    [{status:200,headers:{},body:'<html>PRIVATE '+NEW+'</html>'},'nonjson',200,null],
+    [success({returnCode:-30314,message:NEW}),'business',200,-30314],
+    [success({returnCode:NEW}),'codeformat',200,null],
+    [success({data:{weekSignMap:'0000000'}}),'nocode',200,null],
+    [success({returnCode:0,data:{}}),'map',200,0],
+  ]) {const r=run();r.reply(reply);assert.equal(r.diag().code,expected);assert.equal(r.diag().validation.httpStatus,status);assert.equal(r.diag().validation.businessCode,code);const d=run({store:r.store,type:'generic'});d.privacy();}
+});
+
+test('new response tokens are saved only following strict same-account pure-candidate success', () => {
+  const r=run();r.reply(success(undefined,{msdktoken:'NEW_RESPONSE_TOKEN',gametoken:'NEW_GAME_TOKEN'}));
+  assert.equal(r.saved().headers.msdktoken,'NEW_RESPONSE_TOKEN');assert.equal(r.saved().headers.gametoken,'NEW_GAME_TOKEN');assert.equal(r.saved().headers.token,undefined);assert.equal(r.diag().code,'updated');r.privacy();
+  const failed=run(),before=failed.store.get(KEY);failed.reply(success({returnCode:-30314},{msdktoken:NEW,gametoken:NEW}));assert.equal(failed.store.get(KEY),before);assert.equal(failed.diag().code,'business');
+});
+
+test('same candidate with renewed response token reports an actual update', () => {
+  const s=session();s.headers.token=NEW;delete s.headers.msdkencodeparam;delete s.headers.sig;delete s.headers.timestamp;delete s.headers.encode;
+  const r=run({store:storeFor(s),req:page('userId=camp-user&token='+NEW)});r.reply(success(undefined,{msdktoken:'NEW_RESPONSE_TOKEN'}));assert.equal(r.diag().code,'updated');assert.equal(r.saved().headers.msdktoken,'NEW_RESPONSE_TOKEN');
 });
