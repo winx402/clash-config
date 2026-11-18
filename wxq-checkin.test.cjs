@@ -360,13 +360,13 @@ test('first and renewed capture both notify immediate disable without clearing s
   assert.match(status.notices.join(''), /今日已签到/);
 });
 
-test('missing or expired credentials explain login before temporary capture', async () => {
+test('missing credentials explain initial capture and expired credentials prioritize daily refresh', async () => {
   const missing = await execute({mode:'status'});
   assert.match(missing.notices.join(''), /先停用临时捕获模块并完成营地登录/);
   const {store} = await capture();
   const expired = await execute({store,mode:'status',replies:[result('0000100',{
     body:JSON.stringify({returnCode:-30314})
   })]});
-  assert.match(expired.notices.join(''), /先停用临时捕获模块并完成营地登录/);
+  assert.match(expired.notices.join(''), /业务码 -30314.*战绩 → 对局详情.*万象棋只查状态.*先停用临时捕获模块并完成营地登录/);
   assert.equal(expired.calls.length,1);
 });
